@@ -50,7 +50,10 @@
       "Bash(npx gh repo create:*)",
       "Bash(git remote set-url:*)",
       "Bash(git add:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npx @cloudflare/next-on-pages)"
     ]
   }
 }

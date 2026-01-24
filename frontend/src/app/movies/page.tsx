@@ -6,6 +6,7 @@ import SortDropdown from '@/components/SortDropdown';
 import { ContentGridSkeleton } from '@/components/ContentCardSkeleton';
 import { getContents, getGenres } from '@/lib/api';
 import { mockMovies } from '@/lib/mock-data';
+import { Genre } from '@/types/content';
 import { Suspense } from 'react';
 
 export const dynamic = 'force-dynamic';
@@ -86,7 +87,7 @@ export default async function MoviesPage({ searchParams }: PageProps) {
   const period = params.period || '1';
 
   // Fetch genres for filter (영화에 콘텐츠가 있는 장르만)
-  let genres = [];
+  let genres: Genre[] = [];
   try {
     genres = await getGenres('movie');
   } catch (error) {
