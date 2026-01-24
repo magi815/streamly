@@ -3,7 +3,9 @@
 name = "streamly"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = ".open-next/assets"
+
+# Use the full .open-next directory to include both assets and worker
+pages_build_output_dir = ".open-next"
 
 [vars]
 NEXT_PUBLIC_API_URL = "https://streamly-api.magi815.workers.dev/api/v1"
