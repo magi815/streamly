@@ -1,0 +1,27 @@
+name = "streamly-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "streamly-db"
+database_id = "543f1840-3bb3-4026-874b-760d732b47ee"
+
+# Environment variables (set in .dev.vars for local, Cloudflare secrets for production)
+# [vars]
+# TMDB_API_KEY = ""
+# YOUTUBE_API_KEY = ""
+
+# Cron Triggers (스케줄된 태스크)
+[triggers]
+crons = [
+  "0 3 * * *",   # 매일 03:00 - 인기 콘텐츠 수집
+  "0 4 * * *",   # 매일 04:00 - 신작 콘텐츠 수집
+  "0 */6 * * *"  # 6시간마다 - 트렌딩 업데이트
+]
+
+# Development settings
+[dev]
+port = 8787
+local_protocol = "http"

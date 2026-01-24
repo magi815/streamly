@@ -1,23 +1,83 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
 
-# testing
-/coverage
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
 
-# production
-/build
-
-# misc
-.DS_Store
+# Environment variables
+.env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.production
+firebase-credentials.json
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Documentation
+ott-project-plan.docx
+
+# Cloudflare Workers
+workers/.dev.vars
+workers/.wrangler/
+.wrangler/
+
+# Frontend
+frontend/.env.local
+frontend/.env.production
+frontend/.next/
+frontend/node_modules/
+
+# Workers
+workers/node_modules/
+
+# Misc
+nul
+node_modules/
