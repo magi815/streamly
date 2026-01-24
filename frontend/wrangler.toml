@@ -1,9 +1,11 @@
-# Cloudflare Pages configuration for Streamly Frontend
-
+# Cloudflare Worker configuration for Streamly Frontend
 name = "streamly"
+main = ".open-next/worker.js"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = ".open-next/assets"
+
+# Assets binding for static files
+assets = { directory = ".open-next/assets", binding = "ASSETS" }
 
 [vars]
 NEXT_PUBLIC_API_URL = "https://streamly-api.magi815.workers.dev/api/v1"
