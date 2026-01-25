@@ -9,6 +9,9 @@ on:
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
+env:
+  NEXT_PUBLIC_API_URL: https://streamly-api.magi815.workers.dev/api/v1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -31,6 +34,8 @@ jobs:
       - name: Build with OpenNext
         working-directory: frontend
         run: npm run pages:build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
 
       - name: Deploy to Cloudflare Workers
         working-directory: frontend
