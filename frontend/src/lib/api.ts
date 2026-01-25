@@ -1,7 +1,7 @@
 import { Content, ContentDetail, Genre, Platform, PaginatedResponse, YouTubeReview } from '@/types/content';
 
-// Workers API URL (development: 127.0.0.1:8787, production: streamly-api.{your-subdomain}.workers.dev)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8787/api/v1';
+// Workers API URL (development: 127.0.0.1:8787, production: streamly-api.magi815.workers.dev)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://streamly-api.magi815.workers.dev/api/v1';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
