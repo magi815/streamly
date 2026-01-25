@@ -947,7 +947,7 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
     return c.json({ error: 'YOUTUBE_API_KEY not configured' }, 400);
   }
 
-  const { limit = 20 } = await c.req.json().catch(() => ({ limit: 20 }));
+  const { limit = 20, debug = false } = await c.req.json().catch(() => ({ limit: 20, debug: false }));
 
   try {
     // 리뷰가 없는 콘텐츠 가져오기
@@ -960,6 +960,8 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
     `).bind(limit).all<{ id: number; title: string; content_type: string }>();
 
     let collected = 0;
+    const errors: string[] = [];
+    let debugInfo: any = null;
 
     for (const content of contents.results || []) {
       const searchQuery = `${content.title} ${content.content_type === 'movie' ? '영화' : '드라마'} 리뷰`;
@@ -971,6 +973,7 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
           `relevanceLanguage=ko&regionCode=KR&key=${apiKey}`
         );
         const data = await res.json() as {
+          error?: { message: string; code: number };
           items?: Array<{
             id: { videoId: string };
             snippet: {
@@ -981,6 +984,17 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
             };
           }>;
         };
+
+        // 첫 번째 응답을 디버그 정보로 저장
+        if (debug && !debugInfo) {
+          debugInfo = { query: searchQuery, response: data };
+        }
+
+        // API 에러 체크
+        if (data.error) {
+          errors.push(`${content.title}: ${data.error.message}`);
+          continue;
+        }
 
         for (const item of data.items || []) {
           await db.prepare(`
@@ -1000,11 +1014,17 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
           collected++;
         }
       } catch (e) {
-        console.error(`Failed to get reviews for ${content.title}:`, e);
+        errors.push(`${content.title}: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     }
 
-    return c.json({ success: true, collected });
+    return c.json({
+      success: true,
+      collected,
+      processed: contents.results?.length || 0,
+      errors: errors.length > 0 ? errors : undefined,
+      debug: debug ? debugInfo : undefined
+    });
   } catch (error) {
     console.error('Collect youtube reviews error:', error);
     return c.json({ error: 'Failed to collect youtube reviews' }, 500);

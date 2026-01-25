@@ -30,6 +30,7 @@ export interface Content {
   cast?: string[];
   genres: Genre[];
   platforms?: Platform[];
+  review_count?: number;
 }
 
 export interface YouTubeReview {

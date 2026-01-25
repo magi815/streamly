@@ -33,16 +33,29 @@ async function getPlatformsForContent(db: D1Database, contentId: number): Promis
   return platforms.results || [];
 }
 
+// Helper function to get review count for content
+async function getReviewCountForContent(db: D1Database, contentId: number): Promise<number> {
+  const result = await db.prepare(
+    `SELECT COUNT(*) as count FROM youtube_reviews WHERE content_id = ?`
+  ).bind(contentId).first<{ count: number }>();
+  return result?.count || 0;
+}
+
 // Get all contents with filtering and pagination
 contentsRoutes.get('/', async (c) => {
   const db = c.env.DB;
-  const { page = '1', content_type, genre, ordering = '-popularity', recent, period = '1' } = c.req.query();
+  const { page = '1', content_type, genre, ordering = '-popularity', recent, period = '1', available_kr } = c.req.query();
 
   const pageNum = parseInt(page);
   const offset = (pageNum - 1) * PAGE_SIZE;
 
   let whereClause = '1=1';
   const params: (string | number)[] = [];
+
+  // 기본적으로 한국에서 시청 가능한 콘텐츠만 표시 (available_kr=false로 비활성화 가능)
+  if (available_kr !== 'false') {
+    whereClause += ' AND id IN (SELECT content_id FROM content_platforms)';
+  }
 
   if (content_type) {
     whereClause += ' AND content_type = ?';
@@ -96,12 +109,13 @@ contentsRoutes.get('/', async (c) => {
     `SELECT * FROM contents WHERE ${whereClause} ORDER BY ${orderClause} LIMIT ? OFFSET ?`
   ).bind(...params, PAGE_SIZE, offset).all<Content>();
 
-  // Get genres and platforms for each content
+  // Get genres, platforms, and review count for each content
   const results = await Promise.all(
     (contents.results || []).map(async (content) => ({
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
@@ -117,7 +131,7 @@ contentsRoutes.get('/', async (c) => {
 
 // IMPORTANT: Static routes MUST come before dynamic routes (/:id)
 
-// Get movies only
+// Get movies only (한국에서 시청 가능한 것만)
 contentsRoutes.get('/movies', async (c) => {
   const db = c.env.DB;
   const { page = '1' } = c.req.query();
@@ -126,13 +140,17 @@ contentsRoutes.get('/movies', async (c) => {
   const offset = (pageNum - 1) * PAGE_SIZE;
 
   const countResult = await db.prepare(
-    "SELECT COUNT(*) as count FROM contents WHERE content_type = 'movie'"
+    `SELECT COUNT(*) as count FROM contents
+     WHERE content_type = 'movie'
+     AND id IN (SELECT content_id FROM content_platforms)`
   ).first<{ count: number }>();
 
   const totalCount = countResult?.count || 0;
 
   const contents = await db.prepare(
-    `SELECT * FROM contents WHERE content_type = 'movie'
+    `SELECT * FROM contents
+     WHERE content_type = 'movie'
+     AND id IN (SELECT content_id FROM content_platforms)
      ORDER BY popularity DESC LIMIT ? OFFSET ?`
   ).bind(PAGE_SIZE, offset).all<Content>();
 
@@ -141,6 +159,7 @@ contentsRoutes.get('/movies', async (c) => {
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
@@ -152,7 +171,7 @@ contentsRoutes.get('/movies', async (c) => {
   });
 });
 
-// Get dramas only
+// Get dramas only (한국에서 시청 가능한 것만)
 contentsRoutes.get('/dramas', async (c) => {
   const db = c.env.DB;
   const { page = '1' } = c.req.query();
@@ -161,13 +180,17 @@ contentsRoutes.get('/dramas', async (c) => {
   const offset = (pageNum - 1) * PAGE_SIZE;
 
   const countResult = await db.prepare(
-    "SELECT COUNT(*) as count FROM contents WHERE content_type = 'drama'"
+    `SELECT COUNT(*) as count FROM contents
+     WHERE content_type = 'drama'
+     AND id IN (SELECT content_id FROM content_platforms)`
   ).first<{ count: number }>();
 
   const totalCount = countResult?.count || 0;
 
   const contents = await db.prepare(
-    `SELECT * FROM contents WHERE content_type = 'drama'
+    `SELECT * FROM contents
+     WHERE content_type = 'drama'
+     AND id IN (SELECT content_id FROM content_platforms)
      ORDER BY popularity DESC LIMIT ? OFFSET ?`
   ).bind(PAGE_SIZE, offset).all<Content>();
 
@@ -176,6 +199,7 @@ contentsRoutes.get('/dramas', async (c) => {
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
@@ -187,7 +211,7 @@ contentsRoutes.get('/dramas', async (c) => {
   });
 });
 
-// Get trending contents (recent 1 year + high popularity)
+// Get trending contents (recent 1 year + high popularity, 한국에서 시청 가능한 것만)
 contentsRoutes.get('/trending', async (c) => {
   const db = c.env.DB;
 
@@ -199,6 +223,7 @@ contentsRoutes.get('/trending', async (c) => {
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE release_date >= ?
+     AND id IN (SELECT content_id FROM content_platforms)
      ORDER BY popularity DESC LIMIT 10`
   ).bind(dateStr).all<Content>();
 
@@ -207,19 +232,21 @@ contentsRoutes.get('/trending', async (c) => {
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
   return c.json(results);
 });
 
-// Get new releases
+// Get new releases (한국에서 시청 가능한 것만)
 contentsRoutes.get('/new-releases', async (c) => {
   const db = c.env.DB;
 
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE release_date IS NOT NULL
+     AND id IN (SELECT content_id FROM content_platforms)
      ORDER BY release_date DESC LIMIT 10`
   ).all<Content>();
 
@@ -228,6 +255,7 @@ contentsRoutes.get('/new-releases', async (c) => {
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
@@ -265,6 +293,7 @@ contentsRoutes.get('/search', async (c) => {
       ...content,
       genres: await getGenresForContent(db, content.id),
       platforms: await getPlatformsForContent(db, content.id),
+      review_count: await getReviewCountForContent(db, content.id),
     }))
   );
 
