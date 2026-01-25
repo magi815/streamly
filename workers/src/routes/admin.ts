@@ -691,49 +691,51 @@ adminRoutes.get('/stats', async (c) => {
 adminRoutes.post('/collect-watch-providers', async (c) => {
   const db = c.env.DB;
   const apiKey = c.env.TMDB_API_KEY;
+  const { offset = 0, limit = 50 } = await c.req.json().catch(() => ({ offset: 0, limit: 50 }));
 
   if (!apiKey) {
     return c.json({ error: 'TMDB_API_KEY not configured' }, 400);
   }
 
   // 한국에서 사용 가능한 주요 OTT 플랫폼 (TMDb provider_id)
-  const koreanProviders: Record<number, { name: string; code: string }> = {
-    8: { name: 'Netflix', code: 'netflix' },
-    97: { name: 'Watcha', code: 'watcha' },
-    356: { name: 'Wavve', code: 'wavve' },
-    337: { name: 'Disney+', code: 'disney_plus' },
-    350: { name: 'Apple TV+', code: 'apple_tv_plus' },
-    1883: { name: 'TVING', code: 'tving' },
+  const koreanProviders: Record<number, { name: string; code: string; logo: string }> = {
+    8: { name: 'Netflix', code: 'netflix', logo: '/t2yyOv40HZeVlLjYsCsPHnWLk4W.jpg' },
+    97: { name: 'Watcha', code: 'watcha', logo: '/2ioan5BX5L9tz4fIGU93blTeFhv.jpg' },
+    356: { name: 'Wavve', code: 'wavve', logo: '/6UKUfqUCOEbCpaChyPtBqR8HR13.jpg' },
+    337: { name: 'Disney+', code: 'disney_plus', logo: '/7rwgEs15tFwyR9NPQ5vpzxTj19Q.jpg' },
+    350: { name: 'Apple TV+', code: 'apple_tv_plus', logo: '/6uhKBfmtzFqOcLousHwZuzcrScK.jpg' },
+    1883: { name: 'TVING', code: 'tving', logo: '/cNi4Nv5EPsnvf5WmgwhfWDsdMUd.jpg' },
   };
 
   try {
-    // 플랫폼 테이블에 tmdb_provider_id 추가 (마이그레이션)
-    await db.prepare(`
-      ALTER TABLE platforms ADD COLUMN tmdb_provider_id INTEGER UNIQUE
-    `).run().catch(() => {/* 이미 존재하면 무시 */});
-
-    // 플랫폼 정보 업데이트/삽입
-    for (const [providerId, info] of Object.entries(koreanProviders)) {
-      await db.prepare(`
-        INSERT INTO platforms (name, code, tmdb_provider_id, logo_url)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(code) DO UPDATE SET tmdb_provider_id = excluded.tmdb_provider_id
-      `).bind(
-        info.name,
-        info.code,
-        parseInt(providerId),
-        `https://image.tmdb.org/t/p/original${providerId === '8' ? '/t2yyOv40HZeVlLjYsCsPHnWLk4W.jpg' : ''}`
-      ).run();
+    // 플랫폼 정보 업데이트/삽입 (첫 번째 호출에서만)
+    if (offset === 0) {
+      for (const [providerId, info] of Object.entries(koreanProviders)) {
+        await db.prepare(`
+          INSERT INTO platforms (name, code, tmdb_provider_id, logo_url)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(code) DO UPDATE SET
+            tmdb_provider_id = excluded.tmdb_provider_id,
+            logo_url = excluded.logo_url
+        `).bind(
+          info.name,
+          info.code,
+          parseInt(providerId),
+          `https://image.tmdb.org/t/p/original${info.logo}`
+        ).run();
+      }
     }
 
-    // 콘텐츠별 시청 가능 플랫폼 수집 (아직 플랫폼 정보가 없는 콘텐츠만)
+    // 페이지네이션으로 콘텐츠 가져오기
+    const totalResult = await db.prepare('SELECT COUNT(*) as count FROM contents').first<{ count: number }>();
+    const total = totalResult?.count || 0;
+
     const contents = await db.prepare(
-      `SELECT c.id, c.tmdb_id, c.content_type FROM contents c
-       LEFT JOIN content_platforms cp ON c.id = cp.content_id
-       WHERE cp.id IS NULL`
-    ).all<{ id: number; tmdb_id: number; content_type: string }>();
+      `SELECT id, tmdb_id, content_type FROM contents ORDER BY id LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all<{ id: number; tmdb_id: number; content_type: string }>();
 
     let collected = 0;
+    let processed = 0;
 
     for (const content of contents.results || []) {
       const mediaType = content.content_type === 'movie' ? 'movie' : 'tv';
@@ -766,12 +768,15 @@ adminRoutes.post('/collect-watch-providers', async (c) => {
             collected++;
           }
         }
+        processed++;
       } catch (e) {
         console.error(`Failed to get providers for ${content.tmdb_id}:`, e);
       }
     }
 
-    return c.json({ success: true, collected });
+    const nextOffset = offset + limit < total ? offset + limit : null;
+
+    return c.json({ success: true, processed, collected, total, nextOffset });
   } catch (error) {
     console.error('Collect watch providers error:', error);
     return c.json({ error: 'Failed to collect watch providers' }, 500);
