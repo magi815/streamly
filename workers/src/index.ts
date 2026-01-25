@@ -18,7 +18,11 @@ const app = new Hono<{ Bindings: Env }>();
 // Middleware
 app.use('*', logger());
 app.use('*', cors({
-  origin: ['http://localhost:3000', 'https://streamly.pages.dev'],
+  origin: [
+    'http://localhost:3000',
+    'https://streamly.pages.dev',
+    'https://streamly.magi815.workers.dev',
+  ],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
