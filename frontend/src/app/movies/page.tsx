@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ContentCard from '@/components/ContentCard';
 import Pagination from '@/components/Pagination';
@@ -11,7 +11,7 @@ import { getContents, getGenres } from '@/lib/api';
 import { mockMovies } from '@/lib/mock-data';
 import { Content, Genre } from '@/types/content';
 
-export default function MoviesPage() {
+function MoviesContent() {
   const searchParams = useSearchParams();
   const page = parseInt(searchParams.get('page') || '1');
   const genre = searchParams.get('genre') ? parseInt(searchParams.get('genre')!) : undefined;
@@ -104,5 +104,20 @@ export default function MoviesPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function MoviesPage() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-white">🎬 영화</h1>
+        </div>
+        <ContentGridSkeleton count={20} />
+      </div>
+    }>
+      <MoviesContent />
+    </Suspense>
   );
 }
