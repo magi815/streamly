@@ -1,35 +1,41 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import ContentSection from '@/components/ContentSection';
 import { getTrending, getNewReleases, getRecentPopular } from '@/lib/api';
 import { mockTrending, mockNewReleases, mockMovies, mockDramas } from '@/lib/mock-data';
+import { Content } from '@/types/content';
 
-export const dynamic = 'force-dynamic';
+export default function HomePage() {
+  const [trending, setTrending] = useState<Content[]>(mockTrending);
+  const [newReleases, setNewReleases] = useState<Content[]>(mockNewReleases);
+  const [movies, setMovies] = useState<Content[]>(mockMovies);
+  const [dramas, setDramas] = useState<Content[]>(mockDramas);
+  const [isLoading, setIsLoading] = useState(true);
 
-export default async function HomePage() {
-  let trending, newReleases, movies, dramas;
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [trendingData, newReleasesData, moviesData, dramasData] = await Promise.all([
+          getTrending(),
+          getNewReleases(),
+          getRecentPopular('movie', 6),
+          getRecentPopular('drama', 6),
+        ]);
+        setTrending(trendingData);
+        setNewReleases(newReleasesData);
+        setMovies(moviesData);
+        setDramas(dramasData);
+      } catch (error) {
+        console.error('API fetch failed, using mock data:', error);
+        // Keep using mock data as fallback (already set as initial state)
+      } finally {
+        setIsLoading(false);
+      }
+    }
 
-  try {
-    console.log('[HomePage] Fetching data from API...');
-    console.log('[HomePage] API_BASE_URL should be:', process.env.NEXT_PUBLIC_API_URL || 'https://streamly-api.magi815.workers.dev/api/v1');
-
-    const [trendingData, newReleasesData, moviesData, dramasData] = await Promise.all([
-      getTrending(),
-      getNewReleases(),
-      getRecentPopular('movie', 6),
-      getRecentPopular('drama', 6),
-    ]);
-    trending = trendingData;
-    newReleases = newReleasesData;
-    movies = moviesData;
-    dramas = dramasData;
-    console.log('[HomePage] Successfully fetched data. Trending count:', trending?.length);
-  } catch (error) {
-    // API 실패 시 mock 데이터 사용
-    console.error('[HomePage] API fetch failed, using mock data. Error:', error);
-    trending = mockTrending;
-    newReleases = mockNewReleases;
-    movies = mockMovies;
-    dramas = mockDramas;
-  }
+    fetchData();
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
