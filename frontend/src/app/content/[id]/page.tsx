@@ -1,19 +1,15 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { getContent as fetchContent } from '@/lib/api';
 import { mockMovies, mockDramas, getMockReviews } from '@/lib/mock-data';
-import { Metadata } from 'next';
-import { YouTubeReview, ContentDetail } from '@/types/content';
-
-export const dynamic = 'force-dynamic';
-
-interface Props {
-  params: Promise<{ id: string }>;
-}
+import { YouTubeReview, ContentDetail, Content } from '@/types/content';
 
 // Mock 데이터에서 콘텐츠 찾기 (fallback용)
-function getMockContent(id: number) {
+function getMockContent(id: number): Content | undefined {
   const allContents = [...mockMovies, ...mockDramas];
   return allContents.find((c) => c.id === id);
 }
@@ -27,27 +23,6 @@ function formatViewCount(count: number): string {
     return `${(count / 1000).toFixed(1)}천회`;
   }
   return `${count}회`;
-}
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
-
-  try {
-    const content = await fetchContent(parseInt(id));
-    return {
-      title: `${content.title} - Streamly`,
-      description: content.overview || `${content.title} 정보`,
-    };
-  } catch {
-    const mockContent = getMockContent(parseInt(id));
-    if (!mockContent) {
-      return { title: '콘텐츠를 찾을 수 없습니다' };
-    }
-    return {
-      title: `${mockContent.title} - Streamly`,
-      description: mockContent.overview || `${mockContent.title} 정보`,
-    };
-  }
 }
 
 // YouTube 리뷰 카드 컴포넌트
@@ -103,31 +78,75 @@ function YouTubeReviewCard({ review }: { review: YouTubeReview }) {
   );
 }
 
-export default async function ContentDetailPage({ params }: Props) {
-  const { id } = await params;
-  const contentId = parseInt(id);
+// Loading skeleton
+function ContentDetailSkeleton() {
+  return (
+    <div>
+      <div className="relative h-[400px] w-full animate-pulse bg-gray-800" />
+      <div className="mx-auto max-w-7xl px-4">
+        <div className="-mt-32 relative z-10 flex flex-col gap-8 md:flex-row">
+          <div className="h-[300px] w-[200px] animate-pulse rounded-lg bg-gray-700 md:h-[375px] md:w-[250px]" />
+          <div className="flex-1 py-4 space-y-4">
+            <div className="h-10 w-3/4 animate-pulse rounded bg-gray-700" />
+            <div className="h-6 w-1/2 animate-pulse rounded bg-gray-700" />
+            <div className="h-4 w-1/3 animate-pulse rounded bg-gray-700" />
+            <div className="h-24 animate-pulse rounded bg-gray-700" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  let content: ContentDetail | null = null;
-  let reviews: YouTubeReview[] = [];
+export default function ContentDetailPage() {
+  const params = useParams();
+  const contentId = parseInt(params.id as string);
 
-  try {
-    content = await fetchContent(contentId);
-    reviews = content.youtube_reviews || [];
-  } catch (error) {
-    console.error('API fetch failed, using mock data:', error);
-    const mockContent = getMockContent(contentId);
-    if (mockContent) {
-      content = {
-        ...mockContent,
-        vote_count: 0,
-        is_adult: false,
-      };
-      reviews = getMockReviews(contentId);
+  const [content, setContent] = useState<ContentDetail | null>(null);
+  const [reviews, setReviews] = useState<YouTubeReview[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const data = await fetchContent(contentId);
+        setContent(data);
+        setReviews(data.youtube_reviews || []);
+      } catch (error) {
+        console.error('API fetch failed, using mock data:', error);
+        const mockContent = getMockContent(contentId);
+        if (mockContent) {
+          setContent({
+            ...mockContent,
+            vote_count: 0,
+            is_adult: false,
+          });
+          setReviews(getMockReviews(contentId));
+        } else {
+          setNotFound(true);
+        }
+      } finally {
+        setIsLoading(false);
+      }
     }
+
+    fetchData();
+  }, [contentId]);
+
+  if (isLoading) {
+    return <ContentDetailSkeleton />;
   }
 
-  if (!content) {
-    notFound();
+  if (notFound || !content) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
+        <h1 className="mb-4 text-2xl font-bold text-white">콘텐츠를 찾을 수 없습니다</h1>
+        <Link href="/" className="text-purple-400 hover:text-purple-300">
+          홈으로 돌아가기
+        </Link>
+      </div>
+    );
   }
 
   const year = content.release_date?.split('-')[0] || '';

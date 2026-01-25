@@ -1,33 +1,44 @@
-import { Metadata } from 'next';
+'use client';
+
+import { useEffect, useState } from 'react';
 import ContentCard from '@/components/ContentCard';
+import { ContentGridSkeleton } from '@/components/ContentCardSkeleton';
 import { getTrending } from '@/lib/api';
 import { mockTrending } from '@/lib/mock-data';
+import { Content } from '@/types/content';
 
-export const dynamic = 'force-dynamic';
+export default function TrendingPage() {
+  const [trending, setTrending] = useState<Content[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-export const metadata: Metadata = {
-  title: '인기 콘텐츠 - Streamly',
-  description: '지금 가장 인기있는 영화와 드라마를 확인하세요',
-};
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const data = await getTrending();
+        setTrending(data);
+      } catch (error) {
+        console.error('API fetch failed, using mock data:', error);
+        setTrending(mockTrending);
+      } finally {
+        setIsLoading(false);
+      }
+    }
 
-export default async function TrendingPage() {
-  let trending;
-
-  try {
-    trending = await getTrending();
-  } catch (error) {
-    console.error('API fetch failed, using mock data:', error);
-    trending = mockTrending;
-  }
+    fetchData();
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="mb-8 text-3xl font-bold">🔥 인기 콘텐츠</h1>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {trending.map((content) => (
-          <ContentCard key={content.id} content={content} />
-        ))}
-      </div>
+      {isLoading ? (
+        <ContentGridSkeleton count={10} />
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {trending.map((content) => (
+            <ContentCard key={content.id} content={content} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

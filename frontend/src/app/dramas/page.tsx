@@ -1,4 +1,7 @@
-import { Metadata } from 'next';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import ContentCard from '@/components/ContentCard';
 import Pagination from '@/components/Pagination';
 import GenreFilter from '@/components/GenreFilter';
@@ -6,92 +9,50 @@ import SortDropdown from '@/components/SortDropdown';
 import { ContentGridSkeleton } from '@/components/ContentCardSkeleton';
 import { getContents, getGenres } from '@/lib/api';
 import { mockDramas } from '@/lib/mock-data';
-import { Genre } from '@/types/content';
-import { Suspense } from 'react';
+import { Content, Genre } from '@/types/content';
 
-export const dynamic = 'force-dynamic';
+export default function DramasPage() {
+  const searchParams = useSearchParams();
+  const page = parseInt(searchParams.get('page') || '1');
+  const genre = searchParams.get('genre') ? parseInt(searchParams.get('genre')!) : undefined;
+  const ordering = searchParams.get('ordering') || '-popularity';
+  const period = searchParams.get('period') || '1';
 
-export const metadata: Metadata = {
-  title: '드라마 - Streamly',
-  description: 'OTT에서 볼 수 있는 드라마 목록',
-};
+  const [dramas, setDramas] = useState<Content[]>([]);
+  const [genres, setGenres] = useState<Genre[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
-interface PageProps {
-  searchParams: Promise<{ page?: string; genre?: string; ordering?: string; period?: string }>;
-}
-
-async function DramasContent({ page, genre, ordering, period }: { page: number; genre?: number; ordering: string; period: string }) {
-  let dramas;
-  let totalCount = 0;
   const pageSize = 20;
-
-  try {
-    const data = await getContents({
-      page,
-      content_type: 'drama',
-      genre,
-      ordering,
-      period,
-    });
-    dramas = data.results;
-    totalCount = data.count;
-  } catch (error) {
-    console.error('API fetch failed, using mock data:', error);
-    dramas = mockDramas;
-    totalCount = mockDramas.length;
-  }
-
   const totalPages = Math.ceil(totalCount / pageSize);
+
+  useEffect(() => {
+    async function fetchData() {
+      setIsLoading(true);
+      try {
+        const [contentsData, genresData] = await Promise.all([
+          getContents({ page, content_type: 'drama', genre, ordering, period }),
+          getGenres('drama'),
+        ]);
+        setDramas(contentsData.results);
+        setTotalCount(contentsData.count);
+        setGenres(genresData);
+      } catch (error) {
+        console.error('API fetch failed, using mock data:', error);
+        setDramas(mockDramas);
+        setTotalCount(mockDramas.length);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [page, genre, ordering, period]);
+
   const queryParams: Record<string, string> = { ordering };
   if (genre) queryParams.genre = genre.toString();
   if (ordering === '-popularity' && period && period !== '1') {
     queryParams.period = period;
-  }
-
-  return (
-    <>
-      {/* Results count */}
-      <p className="mb-4 text-sm text-gray-400">
-        총 {totalCount}개의 드라마
-      </p>
-
-      {/* Content Grid */}
-      {dramas.length > 0 ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {dramas.map((content) => (
-            <ContentCard key={content.id} content={content} />
-          ))}
-        </div>
-      ) : (
-        <div className="py-12 text-center text-gray-400">
-          해당 장르의 드라마가 없습니다.
-        </div>
-      )}
-
-      {/* Pagination */}
-      <Pagination
-        currentPage={page}
-        totalPages={totalPages}
-        baseUrl="/dramas"
-        queryParams={queryParams}
-      />
-    </>
-  );
-}
-
-export default async function DramasPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const page = parseInt(params.page || '1');
-  const genre = params.genre ? parseInt(params.genre) : undefined;
-  const ordering = params.ordering || '-popularity';
-  const period = params.period || '1';
-
-  // Fetch genres for filter (드라마에 콘텐츠가 있는 장르만)
-  let genres: Genre[] = [];
-  try {
-    genres = await getGenres('drama');
-  } catch (error) {
-    console.error('Failed to fetch genres:', error);
   }
 
   return (
@@ -111,10 +72,37 @@ export default async function DramasPage({ searchParams }: PageProps) {
         />
       )}
 
-      {/* Content with Suspense */}
-      <Suspense fallback={<ContentGridSkeleton count={20} />}>
-        <DramasContent page={page} genre={genre} ordering={ordering} period={period} />
-      </Suspense>
+      {isLoading ? (
+        <ContentGridSkeleton count={20} />
+      ) : (
+        <>
+          {/* Results count */}
+          <p className="mb-4 text-sm text-gray-400">
+            총 {totalCount}개의 드라마
+          </p>
+
+          {/* Content Grid */}
+          {dramas.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {dramas.map((content) => (
+                <ContentCard key={content.id} content={content} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center text-gray-400">
+              해당 장르의 드라마가 없습니다.
+            </div>
+          )}
+
+          {/* Pagination */}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            baseUrl="/dramas"
+            queryParams={queryParams}
+          />
+        </>
+      )}
     </div>
   );
 }
