@@ -4,8 +4,12 @@ import { Content, ContentDetail, Genre, Platform, PaginatedResponse, YouTubeRevi
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://streamly-api.magi815.workers.dev/api/v1';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const url = `${API_BASE_URL}${endpoint}`;
+  console.log('[API] Fetching:', url);
+
+  const res = await fetch(url, {
     ...options,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
@@ -13,6 +17,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   });
 
   if (!res.ok) {
+    console.error('[API] Error:', res.status, res.statusText);
     throw new Error(`API Error: ${res.status}`);
   }
 

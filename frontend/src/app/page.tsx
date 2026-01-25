@@ -8,6 +8,9 @@ export default async function HomePage() {
   let trending, newReleases, movies, dramas;
 
   try {
+    console.log('[HomePage] Fetching data from API...');
+    console.log('[HomePage] API_BASE_URL should be:', process.env.NEXT_PUBLIC_API_URL || 'https://streamly-api.magi815.workers.dev/api/v1');
+
     const [trendingData, newReleasesData, moviesData, dramasData] = await Promise.all([
       getTrending(),
       getNewReleases(),
@@ -18,9 +21,10 @@ export default async function HomePage() {
     newReleases = newReleasesData;
     movies = moviesData;
     dramas = dramasData;
+    console.log('[HomePage] Successfully fetched data. Trending count:', trending?.length);
   } catch (error) {
     // API 실패 시 mock 데이터 사용
-    console.error('API fetch failed, using mock data:', error);
+    console.error('[HomePage] API fetch failed, using mock data. Error:', error);
     trending = mockTrending;
     newReleases = mockNewReleases;
     movies = mockMovies;
