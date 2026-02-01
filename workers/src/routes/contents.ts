@@ -467,17 +467,10 @@ contentsRoutes.get('/:id', async (c) => {
     'SELECT name FROM content_cast WHERE content_id = ? ORDER BY order_num LIMIT 10'
   ).bind(id).all<{ name: string }>();
 
-  // Get YouTube reviews (filter by language, fallback to all if none found)
-  let reviews = await db.prepare(
+  // Get YouTube reviews (filter by language only - no fallback)
+  const reviews = await db.prepare(
     'SELECT * FROM youtube_reviews WHERE content_id = ? AND country_code = ? ORDER BY is_featured DESC, view_count DESC'
   ).bind(id, language).all();
-
-  // Fallback to all reviews if no language-specific reviews found
-  if (!reviews.results || reviews.results.length === 0) {
-    reviews = await db.prepare(
-      'SELECT * FROM youtube_reviews WHERE content_id = ? ORDER BY is_featured DESC, view_count DESC'
-    ).bind(id).all();
-  }
 
   return c.json({
     ...translated,
@@ -501,21 +494,12 @@ contentsRoutes.get('/:id/reviews', async (c) => {
     return c.json({ error: 'Invalid content ID' }, 400);
   }
 
-  // Filter by language, fallback to all if none found
-  let reviews = await db.prepare(
+  // Filter by language only - no fallback
+  const reviews = await db.prepare(
     `SELECT * FROM youtube_reviews
      WHERE content_id = ? AND country_code = ?
      ORDER BY is_featured DESC, view_count DESC`
   ).bind(id, language).all();
-
-  // Fallback to all reviews if no language-specific reviews found
-  if (!reviews.results || reviews.results.length === 0) {
-    reviews = await db.prepare(
-      `SELECT * FROM youtube_reviews
-       WHERE content_id = ?
-       ORDER BY is_featured DESC, view_count DESC`
-    ).bind(id).all();
-  }
 
   return c.json(reviews.results || []);
 });
