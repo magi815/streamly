@@ -1,8 +1,8 @@
 import { Content, ContentDetail, Genre, Platform, PaginatedResponse, YouTubeReview } from '@/types/content';
 import { localeToCountry, type Locale } from '@/i18n/config';
 
-// Workers API URL (development: 127.0.0.1:8787, production: whatview-api.magi815.workers.dev)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://whatview-api.magi815.workers.dev/api/v1';
+// Workers API URL (hardcoded for Cloudflare Workers compatibility)
+const API_BASE_URL = 'https://whatview-api.magi815.workers.dev/api/v1';
 
 // Helper to add locale params to URL
 function addLocaleParams(params: URLSearchParams, locale?: string) {
