@@ -1,5 +1,8 @@
+'use client';
+
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 import { Content } from '@/types/content';
 
 interface ContentCardProps {
@@ -18,6 +21,7 @@ const platformIcons: Record<string, { icon: string; color: string; name: string 
 };
 
 export default function ContentCard({ content }: ContentCardProps) {
+  const t = useTranslations('filter');
   const year = content.release_date?.split('-')[0] || '';
   const platforms = content.platforms || [];
   const reviewCount = content.review_count || 0;
@@ -83,7 +87,7 @@ export default function ContentCard({ content }: ContentCardProps) {
           {content.title}
         </h3>
         <p className="text-sm text-gray-400">
-          {year} · {content.content_type === 'movie' ? '영화' : '드라마'}
+          {year} · {content.content_type === 'movie' ? t('movie') : t('drama')}
         </p>
       </div>
     </Link>
