@@ -24,7 +24,7 @@ export default function Pagination({ currentPage, totalPages, baseUrl, queryPara
     const showPages = 5; // Number of page buttons to show
 
     let start = Math.max(1, currentPage - Math.floor(showPages / 2));
-    let end = Math.min(totalPages, start + showPages - 1);
+    const end = Math.min(totalPages, start + showPages - 1);
 
     // Adjust start if we're near the end
     if (end - start + 1 < showPages) {

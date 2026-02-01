@@ -74,13 +74,18 @@ async function syncGenres(db: D1Database, apiKey: string) {
   console.log(`Synced ${allGenres.size} genres`);
 }
 
-async function collectPopularMovies(db: D1Database, apiKey: string, pages = 3) {
+async function collectPopularMovies(db: D1Database, apiKey: string, pages = 3, recentOnly = true) {
   console.log('Collecting popular movies...');
   let collected = 0;
 
+  // 최근 1년 필터
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const dateFilter = recentOnly ? `&primary_release_date.gte=${oneYearAgo.toISOString().split('T')[0]}` : '';
+
   for (let page = 1; page <= pages; page++) {
     const res = await fetch(
-      `https://api.themoviedb.org/3/movie/popular?api_key=${apiKey}&language=ko-KR&page=${page}&region=KR`
+      `https://api.themoviedb.org/3/discover/movie?api_key=${apiKey}&language=ko-KR&page=${page}&region=KR&sort_by=popularity.desc&watch_region=KR${dateFilter}`
     );
     const data = await res.json() as { results: TMDbMovie[] };
 
@@ -138,13 +143,18 @@ async function collectPopularMovies(db: D1Database, apiKey: string, pages = 3) {
   return collected;
 }
 
-async function collectPopularDramas(db: D1Database, apiKey: string, pages = 3) {
+async function collectPopularDramas(db: D1Database, apiKey: string, pages = 3, recentOnly = true) {
   console.log('Collecting popular dramas...');
   let collected = 0;
 
+  // 최근 1년 필터
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const dateFilter = recentOnly ? `&first_air_date.gte=${oneYearAgo.toISOString().split('T')[0]}` : '';
+
   for (let page = 1; page <= pages; page++) {
     const res = await fetch(
-      `https://api.themoviedb.org/3/tv/popular?api_key=${apiKey}&language=ko-KR&page=${page}&with_origin_country=KR`
+      `https://api.themoviedb.org/3/discover/tv?api_key=${apiKey}&language=ko-KR&page=${page}&with_origin_country=KR&sort_by=popularity.desc&watch_region=KR${dateFilter}`
     );
     const data = await res.json() as { results: TMDbTV[] };
 
@@ -260,7 +270,232 @@ async function collectWatchProvidersForRecent(db: D1Database, apiKey: string, ho
   return collected;
 }
 
-// YouTube 리뷰 수집 (리뷰가 없는 콘텐츠 대상)
+// Piped API 인스턴스 목록 (fallback용)
+const PIPED_INSTANCES = [
+  'https://api.piped.private.coffee',
+  'https://pipedapi.syncpundit.io',
+  'https://api.piped.projectsegfau.lt',
+  'https://pipedapi.darkness.services',
+  'https://pipedapi.drgns.space',
+];
+
+// Piped API를 통한 YouTube 검색
+async function searchViaPiped(query: string): Promise<{
+  items: Array<{
+    videoId: string;
+    title: string;
+    uploaderName: string;
+    thumbnail: string;
+    views: number;
+    uploaded: number;
+  }>;
+} | null> {
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(
+        `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
+        {
+          headers: { 'Accept': 'application/json', 'User-Agent': 'WhatView/1.0' },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) continue;
+
+      const text = await res.text();
+      if (text.startsWith('<')) continue;
+
+      const data = JSON.parse(text) as {
+        items?: Array<{
+          url: string;
+          title: string;
+          uploaderName: string;
+          thumbnail: string;
+          views: number;
+          uploaded: number;
+        }>;
+      };
+
+      if (!data.items || data.items.length === 0) continue;
+
+      // 조회수 높은 순으로 정렬 후 상위 10개
+      const items = data.items
+        .sort((a, b) => (b.views || 0) - (a.views || 0))
+        .slice(0, 10)
+        .map(item => ({
+          videoId: item.url.replace('/watch?v=', ''),
+          title: item.title,
+          uploaderName: item.uploaderName,
+          thumbnail: item.thumbnail,
+          views: item.views || 0,
+          uploaded: item.uploaded,
+        }));
+
+      return { items };
+    } catch (e) {
+      continue;
+    }
+  }
+  return null;
+}
+
+// YouTube 리뷰 수집 (Piped API 사용 - 할당량 무제한)
+async function collectYouTubeReviewsViaPiped(
+  db: D1Database,
+  limit = 20,
+  options: { includeExisting?: boolean; orderBy?: 'popularity' | 'release_date' } = {}
+): Promise<number> {
+  const { includeExisting = false, orderBy = 'popularity' } = options;
+  console.log(`Collecting YouTube reviews via Piped API (limit=${limit}, includeExisting=${includeExisting}, orderBy=${orderBy})...`);
+
+  // 최근 1년
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0];
+
+  // 쿼리 구성
+  let query: string;
+  const orderClause = orderBy === 'release_date' ? 'c.release_date DESC' : 'c.popularity DESC';
+
+  if (includeExisting) {
+    // 기존 리뷰가 있어도 모두 수집 (업데이트)
+    query = `
+      SELECT c.id, c.title, c.content_type
+      FROM contents c
+      WHERE c.release_date >= ?
+      ORDER BY ${orderClause}
+      LIMIT ?
+    `;
+  } else {
+    // 리뷰가 없는 콘텐츠만
+    query = `
+      SELECT c.id, c.title, c.content_type
+      FROM contents c
+      LEFT JOIN youtube_reviews yr ON c.id = yr.content_id
+      WHERE yr.id IS NULL AND c.release_date >= ?
+      ORDER BY ${orderClause}
+      LIMIT ?
+    `;
+  }
+
+  const contents = await db.prepare(query).bind(oneYearAgoStr, limit).all<{ id: number; title: string; content_type: string }>();
+
+  let collected = 0;
+
+  for (const content of contents.results || []) {
+    const searchQuery = `${content.title} ${content.content_type === 'movie' ? '영화' : '드라마'} 리뷰`;
+
+    try {
+      const result = await searchViaPiped(searchQuery);
+      if (!result || result.items.length === 0) continue;
+
+      for (const item of result.items) {
+        let thumbnailUrl = item.thumbnail;
+        if (thumbnailUrl.includes('proxy.')) {
+          thumbnailUrl = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+        }
+
+        await db.prepare(`
+          INSERT INTO youtube_reviews (
+            content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'piped_api')
+          ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count, source = 'piped_api'
+        `).bind(
+          content.id,
+          item.videoId,
+          item.title,
+          item.uploaderName,
+          thumbnailUrl,
+          `https://www.youtube.com/watch?v=${item.videoId}`,
+          item.uploaded ? new Date(item.uploaded).toISOString() : null,
+          item.views
+        ).run();
+        collected++;
+      }
+    } catch (e) {
+      console.error(`Failed to get reviews for ${content.title}:`, e);
+    }
+  }
+
+  console.log(`Collected ${collected} YouTube reviews via Piped API`);
+  return collected;
+}
+
+// 다국어 번역 수집 (영어, 일본어)
+async function collectTranslations(db: D1Database, apiKey: string, limit = 50): Promise<{ en: number; ja: number }> {
+  console.log('Collecting translations...');
+
+  const results = { en: 0, ja: 0 };
+  const languages = [
+    { code: 'en', tmdbCode: 'en-US' },
+    { code: 'ja', tmdbCode: 'ja-JP' },
+  ];
+
+  // 번역이 없는 최근 콘텐츠 가져오기 (최근 업데이트 순)
+  const contents = await db.prepare(`
+    SELECT c.id, c.tmdb_id, c.content_type, c.title
+    FROM contents c
+    WHERE c.id NOT IN (
+      SELECT DISTINCT content_id FROM content_translations WHERE language_code IN ('en', 'ja')
+    )
+    ORDER BY c.updated_at DESC
+    LIMIT ?
+  `).bind(limit).all<{ id: number; tmdb_id: number; content_type: string; title: string }>();
+
+  for (const content of contents.results || []) {
+    const mediaType = content.content_type === 'movie' ? 'movie' : 'tv';
+
+    for (const lang of languages) {
+      try {
+        const res = await fetch(
+          `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}?api_key=${apiKey}&language=${lang.tmdbCode}`
+        );
+
+        if (!res.ok) continue;
+
+        const data = await res.json() as {
+          title?: string;
+          name?: string;
+          overview?: string;
+          poster_path?: string | null;
+        };
+
+        const title = data.title || data.name;
+        if (title && title !== content.title) {
+          await db.prepare(`
+            INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(content_id, language_code) DO UPDATE SET
+              title = excluded.title,
+              overview = COALESCE(excluded.overview, content_translations.overview),
+              poster_path = COALESCE(excluded.poster_path, content_translations.poster_path),
+              updated_at = datetime('now')
+          `).bind(
+            content.id,
+            lang.code,
+            title,
+            data.overview || null,
+            data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null
+          ).run();
+
+          results[lang.code as 'en' | 'ja']++;
+        }
+      } catch (e) {
+        console.error(`Translation fetch error for ${content.title} (${lang.code}):`, e);
+      }
+    }
+  }
+
+  console.log(`Collected translations: en=${results.en}, ja=${results.ja}`);
+  return results;
+}
+
+// YouTube 리뷰 수집 (리뷰가 없는 콘텐츠 대상, 영화 30% / 드라마 70%)
 async function collectYouTubeReviews(db: D1Database, apiKey: string, limit = 20): Promise<number> {
   console.log('Collecting YouTube reviews...');
 
@@ -269,15 +504,41 @@ async function collectYouTubeReviews(db: D1Database, apiKey: string, limit = 20)
     return 0;
   }
 
-  // 리뷰가 없는 인기 콘텐츠 가져오기
-  const contents = await db.prepare(`
+  // 영화 30%, 드라마 70% 비율로 수집
+  const movieLimit = Math.ceil(limit * 0.3);
+  const dramaLimit = Math.ceil(limit * 0.7);
+
+  // 최근 1년 이내 작품만
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const movies = await db.prepare(`
     SELECT c.id, c.title, c.content_type
     FROM contents c
     LEFT JOIN youtube_reviews yr ON c.id = yr.content_id
     WHERE yr.id IS NULL
+      AND c.content_type = 'movie'
+      AND c.release_date >= ?
     ORDER BY c.popularity DESC
     LIMIT ?
-  `).bind(limit).all<{ id: number; title: string; content_type: string }>();
+  `).bind(oneYearAgoStr, movieLimit).all<{ id: number; title: string; content_type: string }>();
+
+  const dramas = await db.prepare(`
+    SELECT c.id, c.title, c.content_type
+    FROM contents c
+    LEFT JOIN youtube_reviews yr ON c.id = yr.content_id
+    WHERE yr.id IS NULL
+      AND c.content_type = 'drama'
+      AND c.release_date >= ?
+    ORDER BY c.popularity DESC
+    LIMIT ?
+  `).bind(oneYearAgoStr, dramaLimit).all<{ id: number; title: string; content_type: string }>();
+
+  // 영화와 드라마를 합쳐서 처리
+  const contents = {
+    results: [...(movies.results || []), ...(dramas.results || [])]
+  };
 
   let collected = 0;
 
@@ -308,12 +569,39 @@ async function collectYouTubeReviews(db: D1Database, apiKey: string, limit = 20)
         continue;
       }
 
-      for (const item of data.items || []) {
+      const items = data.items || [];
+      if (items.length === 0) continue;
+
+      // Video IDs 수집해서 조회수 가져오기
+      const videoIds = items.map(item => item.id.videoId).join(',');
+      let viewCounts: Record<string, number> = {};
+
+      try {
+        const statsRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?` +
+          `part=statistics&id=${videoIds}&key=${apiKey}`
+        );
+        const statsData = await statsRes.json() as {
+          items?: Array<{
+            id: string;
+            statistics: { viewCount: string };
+          }>;
+        };
+
+        for (const stat of statsData.items || []) {
+          viewCounts[stat.id] = parseInt(stat.statistics.viewCount) || 0;
+        }
+      } catch (e) {
+        console.error(`Failed to get view counts for ${content.title}:`, e);
+      }
+
+      for (const item of items) {
+        const viewCount = viewCounts[item.id.videoId] || 0;
         await db.prepare(`
           INSERT INTO youtube_reviews (
-            content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(video_id) DO NOTHING
+            content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count
         `).bind(
           content.id,
           item.id.videoId,
@@ -321,7 +609,8 @@ async function collectYouTubeReviews(db: D1Database, apiKey: string, limit = 20)
           item.snippet.channelTitle,
           item.snippet.thumbnails.high?.url || '',
           `https://www.youtube.com/watch?v=${item.id.videoId}`,
-          item.snippet.publishedAt
+          item.snippet.publishedAt,
+          viewCount
         ).run();
         collected++;
       }
@@ -345,27 +634,29 @@ export async function scheduledHandler(
   try {
     switch (trigger) {
       case '0 3 * * *':
-        // Daily at 3 AM: Sync genres, collect content, watch providers, and YouTube reviews
+        // Daily at 3 AM UTC (12:00 KST): Sync genres, collect popular content, watch providers, translations
         await syncGenres(env.DB, env.TMDB_API_KEY);
         await collectPopularMovies(env.DB, env.TMDB_API_KEY, 5);
         await collectPopularDramas(env.DB, env.TMDB_API_KEY, 5);
         await collectWatchProvidersForRecent(env.DB, env.TMDB_API_KEY, 48);
-        await collectYouTubeReviews(env.DB, env.YOUTUBE_API_KEY, 30);
-        break;
-
-      case '0 4 * * *':
-        // Daily at 4 AM: Collect trending content, watch providers, and YouTube reviews
-        await collectPopularMovies(env.DB, env.TMDB_API_KEY, 2);
-        await collectPopularDramas(env.DB, env.TMDB_API_KEY, 2);
-        await collectWatchProvidersForRecent(env.DB, env.TMDB_API_KEY, 24);
-        await collectYouTubeReviews(env.DB, env.YOUTUBE_API_KEY, 10);
+        await collectTranslations(env.DB, env.TMDB_API_KEY, 50); // 영어/일본어 번역 수집
         break;
 
       case '0 */6 * * *':
-        // Every 6 hours: Quick update + watch providers for new content
+        // Every 6 hours: Quick update + watch providers + translations for new content
         await collectPopularMovies(env.DB, env.TMDB_API_KEY, 1);
         await collectPopularDramas(env.DB, env.TMDB_API_KEY, 1);
         await collectWatchProvidersForRecent(env.DB, env.TMDB_API_KEY, 6);
+        await collectTranslations(env.DB, env.TMDB_API_KEY, 20); // 신규 콘텐츠 번역
+        break;
+
+      case '*/10 4-5 * * *':
+        // Every 10 minutes during 04:00-06:00 UTC (13:00-15:00 KST): YouTube reviews via Piped API
+        // 20 items per batch × 6 batches/hour × 2 hours = 240 items/day
+        await collectYouTubeReviewsViaPiped(env.DB, 20, {
+          includeExisting: true,
+          orderBy: 'release_date'
+        });
         break;
 
       default:

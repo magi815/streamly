@@ -11,6 +11,9 @@ export interface Platform {
   logo_url: string | null;
   website_url?: string;
   is_active?: boolean;
+  // i18n fields from country_platforms
+  name_local?: string;
+  search_url_template?: string;
 }
 
 export interface Content {

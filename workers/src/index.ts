@@ -20,8 +20,8 @@ app.use('*', logger());
 app.use('*', cors({
   origin: [
     'http://localhost:3000',
-    'https://streamly.pages.dev',
-    'https://streamly.magi815.workers.dev',
+    'https://whatview.magi815.workers.dev',
+    'https://streamly.magi815.workers.dev', // 레거시 지원
   ],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
@@ -31,7 +31,7 @@ app.use('*', cors({
 app.get('/', (c) => {
   return c.json({
     status: 'ok',
-    service: 'Streamly API',
+    service: 'WhatView API',
     version: '1.0.0'
   });
 });

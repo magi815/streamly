@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 const nextConfig: NextConfig = {
   images: {
@@ -14,11 +17,11 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
-    // Use unoptimized images for Cloudflare Pages (no built-in image optimization)
-    unoptimized: process.env.NODE_ENV === 'production',
+    // Use unoptimized images for Cloudflare Pages
+    unoptimized: true,
   },
   // Required for Cloudflare Pages deployment
   output: 'standalone',
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

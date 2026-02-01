@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useDeferredValue, useEffect } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import ContentCard from '@/components/ContentCard';
 import { searchContents } from '@/lib/api';
 import { mockMovies, mockDramas } from '@/lib/mock-data';
 import { Content } from '@/types/content';
 
 export default function SearchPage() {
+  const t = useTranslations('search');
+  const locale = useLocale();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Content[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -25,12 +28,11 @@ export default function SearchPage() {
     const fetchResults = async () => {
       setIsLoading(true);
       try {
-        const data = await searchContents(trimmedQuery);
+        const data = await searchContents(trimmedQuery, 1, locale);
         setResults(data.results);
         setTotalCount(data.count);
       } catch (error) {
         console.error('API search failed, using mock data:', error);
-        // Fallback to mock data search
         const allContents = [...mockMovies, ...mockDramas];
         const filtered = allContents.filter(
           (c) =>
@@ -45,7 +47,7 @@ export default function SearchPage() {
     };
 
     fetchResults();
-  }, [deferredQuery]);
+  }, [deferredQuery, locale]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
@@ -56,7 +58,7 @@ export default function SearchPage() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="영화, 드라마 제목을 검색하세요"
+            placeholder={t('placeholder')}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 pl-12 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none"
           />
           <svg
@@ -77,17 +79,17 @@ export default function SearchPage() {
 
       {/* Results */}
       {isSearching ? (
-        <div className="py-20 text-center text-gray-400">검색 중...</div>
+        <div className="py-20 text-center text-gray-400">{t('searching')}</div>
       ) : query && results.length === 0 ? (
         <div className="py-20 text-center">
           <p className="text-lg text-gray-400">
-            &quot;{query}&quot;에 대한 검색 결과가 없습니다
+            &quot;{query}&quot; - {t('noResults')}
           </p>
         </div>
       ) : results.length > 0 ? (
         <>
           <p className="mb-4 text-gray-400">
-            &quot;{query}&quot; 검색 결과 {totalCount}개
+            &quot;{query}&quot; - {t('resultsCount', { count: totalCount })}
           </p>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {results.map((content) => (
@@ -97,10 +99,7 @@ export default function SearchPage() {
         </>
       ) : (
         <div className="py-20 text-center">
-          <p className="mb-2 text-lg text-gray-400">검색어를 입력하세요</p>
-          <p className="text-sm text-gray-500">
-            영화나 드라마 제목으로 검색할 수 있습니다
-          </p>
+          <p className="mb-2 text-lg text-gray-400">{t('placeholder')}</p>
         </div>
       )}
     </div>

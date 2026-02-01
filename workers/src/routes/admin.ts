@@ -947,17 +947,39 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
     return c.json({ error: 'YOUTUBE_API_KEY not configured' }, 400);
   }
 
-  const { limit = 20, debug = false } = await c.req.json().catch(() => ({ limit: 20, debug: false }));
+  const { limit = 20, debug = false, content_type = null, recent_only = true, korean_ott_only = false } = await c.req.json().catch(() => ({ limit: 20, debug: false, content_type: null, recent_only: true, korean_ott_only: false }));
 
   try {
-    // 리뷰가 없는 콘텐츠 가져오기
-    const contents = await db.prepare(`
-      SELECT c.id, c.title, c.content_type
+    // 1년 전 날짜 계산
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0];
+
+    // 리뷰가 없는 콘텐츠 가져오기 (content_type, recent_only, korean_ott_only 필터 지원)
+    let query = `
+      SELECT DISTINCT c.id, c.title, c.content_type
       FROM contents c
       LEFT JOIN youtube_reviews yr ON c.id = yr.content_id
-      WHERE yr.id IS NULL
-      LIMIT ?
-    `).bind(limit).all<{ id: number; title: string; content_type: string }>();
+    `;
+
+    // 한국 OTT 시청 가능 콘텐츠만 필터
+    if (korean_ott_only) {
+      query += ` INNER JOIN content_platforms cp ON c.id = cp.content_id`;
+    }
+
+    query += ` WHERE yr.id IS NULL`;
+
+    if (content_type === 'movie' || content_type === 'drama') {
+      query += ` AND c.content_type = '${content_type}'`;
+    }
+
+    if (recent_only) {
+      query += ` AND c.release_date >= '${oneYearAgoStr}'`;
+    }
+
+    query += ` ORDER BY c.popularity DESC LIMIT ?`;
+
+    const contents = await db.prepare(query).bind(limit).all<{ id: number; title: string; content_type: string }>();
 
     let collected = 0;
     const errors: string[] = [];
@@ -996,12 +1018,39 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
           continue;
         }
 
-        for (const item of data.items || []) {
+        const items = data.items || [];
+        if (items.length === 0) continue;
+
+        // Video IDs로 조회수 가져오기
+        const videoIds = items.map(item => item.id.videoId).join(',');
+        let viewCounts: Record<string, number> = {};
+
+        try {
+          const statsRes = await fetch(
+            `https://www.googleapis.com/youtube/v3/videos?` +
+            `part=statistics&id=${videoIds}&key=${apiKey}`
+          );
+          const statsData = await statsRes.json() as {
+            items?: Array<{
+              id: string;
+              statistics: { viewCount: string };
+            }>;
+          };
+
+          for (const stat of statsData.items || []) {
+            viewCounts[stat.id] = parseInt(stat.statistics.viewCount) || 0;
+          }
+        } catch (e) {
+          // 조회수 가져오기 실패해도 리뷰는 저장
+        }
+
+        for (const item of items) {
+          const viewCount = viewCounts[item.id.videoId] || 0;
           await db.prepare(`
             INSERT INTO youtube_reviews (
-              content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(video_id) DO NOTHING
+              content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count
           `).bind(
             content.id,
             item.id.videoId,
@@ -1009,7 +1058,8 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
             item.snippet.channelTitle,
             item.snippet.thumbnails.high?.url || '',
             `https://www.youtube.com/watch?v=${item.id.videoId}`,
-            item.snippet.publishedAt
+            item.snippet.publishedAt,
+            viewCount
           ).run();
           collected++;
         }
@@ -1028,5 +1078,323 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
   } catch (error) {
     console.error('Collect youtube reviews error:', error);
     return c.json({ error: 'Failed to collect youtube reviews' }, 500);
+  }
+});
+
+// 다국어 번역 수집 (TMDB Translations API)
+adminRoutes.post('/collect-translations', async (c) => {
+  const db = c.env.DB;
+  const apiKey = c.env.TMDB_API_KEY;
+  const { limit = 50, offset = 0, language = 'all' } = await c.req.json().catch(() => ({ limit: 50, offset: 0, language: 'all' }));
+
+  if (!apiKey) {
+    return c.json({ error: 'TMDB_API_KEY not configured' }, 400);
+  }
+
+  // 지원 언어 및 TMDB 언어 코드 매핑
+  const languageMap: Record<string, { tmdbCode: string; iso: string }> = {
+    en: { tmdbCode: 'en-US', iso: 'en' },
+    ja: { tmdbCode: 'ja-JP', iso: 'ja' },
+  };
+
+  const languagesToFetch = language === 'all'
+    ? Object.keys(languageMap)
+    : [language].filter(l => l in languageMap);
+
+  if (languagesToFetch.length === 0) {
+    return c.json({ error: 'Invalid language. Use: en, ja, or all' }, 400);
+  }
+
+  try {
+    // 번역이 없는 콘텐츠 가져오기
+    const totalResult = await db.prepare('SELECT COUNT(*) as count FROM contents').first<{ count: number }>();
+    const total = totalResult?.count || 0;
+
+    const contents = await db.prepare(
+      `SELECT id, tmdb_id, content_type, title FROM contents ORDER BY id LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all<{ id: number; tmdb_id: number; content_type: string; title: string }>();
+
+    const results = {
+      processed: 0,
+      translations: { en: 0, ja: 0 },
+      errors: [] as string[],
+    };
+
+    for (const content of contents.results || []) {
+      const mediaType = content.content_type === 'movie' ? 'movie' : 'tv';
+
+      for (const lang of languagesToFetch) {
+        const { tmdbCode, iso } = languageMap[lang];
+
+        try {
+          // 해당 언어로 콘텐츠 정보 직접 가져오기
+          const res = await fetch(
+            `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}?api_key=${apiKey}&language=${tmdbCode}`
+          );
+
+          if (!res.ok) {
+            if (res.status === 404) continue;
+            throw new Error(`HTTP ${res.status}`);
+          }
+
+          const data = await res.json() as {
+            title?: string;
+            name?: string;
+            overview?: string;
+            poster_path?: string | null;
+          };
+
+          // 영화는 title, TV는 name 사용
+          const title = data.title || data.name;
+
+          // 제목이 있고, 원본 한국어 제목과 다른 경우에만 저장
+          if (title && title !== content.title) {
+            await db.prepare(`
+              INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, updated_at)
+              VALUES (?, ?, ?, ?, ?, datetime('now'))
+              ON CONFLICT(content_id, language_code) DO UPDATE SET
+                title = excluded.title,
+                overview = COALESCE(excluded.overview, content_translations.overview),
+                poster_path = COALESCE(excluded.poster_path, content_translations.poster_path),
+                updated_at = datetime('now')
+            `).bind(
+              content.id,
+              iso,
+              title,
+              data.overview || null,
+              data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null
+            ).run();
+
+            results.translations[lang as 'en' | 'ja']++;
+          }
+        } catch (e) {
+          results.errors.push(`${content.title} (${lang}): ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+      }
+
+      results.processed++;
+    }
+
+    const nextOffset = offset + limit < total ? offset + limit : null;
+
+    return c.json({
+      success: true,
+      ...results,
+      total,
+      nextOffset,
+      errors: results.errors.length > 0 ? results.errors : undefined,
+    });
+  } catch (error) {
+    console.error('Collect translations error:', error);
+    return c.json({ error: 'Failed to collect translations' }, 500);
+  }
+});
+
+// Piped API 인스턴스 목록 (fallback용)
+const PIPED_INSTANCES = [
+  'https://api.piped.private.coffee',
+  'https://pipedapi.syncpundit.io',
+  'https://api.piped.projectsegfau.lt',
+  'https://pipedapi.darkness.services',
+  'https://pipedapi.drgns.space',
+];
+
+// Piped API를 통한 YouTube 검색
+async function searchViaPiped(query: string): Promise<{
+  items: Array<{
+    videoId: string;
+    title: string;
+    uploaderName: string;
+    thumbnail: string;
+    views: number;
+    uploaded: number;
+  }>;
+  instance: string;
+  errors: string[];
+} | null> {
+  const errors: string[] = [];
+
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
+
+      const res = await fetch(
+        `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'WhatView/1.0'
+          },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        errors.push(`${instance}: HTTP ${res.status}`);
+        continue;
+      }
+
+      const text = await res.text();
+
+      // HTML 응답 체크 (에러 페이지)
+      if (text.startsWith('<') || text.startsWith('<!')) {
+        errors.push(`${instance}: HTML response (blocked or error page)`);
+        continue;
+      }
+
+      const data = JSON.parse(text) as {
+        items?: Array<{
+          url: string;
+          title: string;
+          uploaderName: string;
+          thumbnail: string;
+          views: number;
+          uploaded: number;
+        }>;
+        error?: string;
+      };
+
+      if (data.error) {
+        errors.push(`${instance}: ${data.error}`);
+        continue;
+      }
+
+      if (!data.items || data.items.length === 0) {
+        errors.push(`${instance}: No results`);
+        continue;
+      }
+
+      // 조회수 높은 순으로 정렬 후 상위 10개
+      const items = data.items
+        .sort((a, b) => (b.views || 0) - (a.views || 0))
+        .slice(0, 10)
+        .map(item => ({
+          videoId: item.url.replace('/watch?v=', ''),
+          title: item.title,
+          uploaderName: item.uploaderName,
+          thumbnail: item.thumbnail,
+          views: item.views || 0,
+          uploaded: item.uploaded,
+        }));
+
+      return { items, instance, errors };
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+      errors.push(`${instance}: ${errorMsg}`);
+      continue;
+    }
+  }
+  return { items: [], instance: '', errors };
+}
+
+// YouTube 리뷰 수집 (Piped API 사용 - 할당량 무제한)
+adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
+  const db = c.env.DB;
+  const { limit = 20, debug = false, content_type = null, recent_only = true, korean_ott_only = false, include_existing = false, offset = 0 } = await c.req.json().catch(() => ({ limit: 20, debug: false, content_type: null, recent_only: true, korean_ott_only: false, include_existing: false, offset: 0 }));
+
+  try {
+    // 1년 전 날짜 계산
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0];
+
+    // 콘텐츠 가져오기
+    let query = `
+      SELECT DISTINCT c.id, c.title, c.content_type
+      FROM contents c
+    `;
+
+    if (!include_existing) {
+      query += ` LEFT JOIN youtube_reviews yr ON c.id = yr.content_id`;
+    }
+
+    if (korean_ott_only) {
+      query += ` INNER JOIN content_platforms cp ON c.id = cp.content_id`;
+    }
+
+    query += ` WHERE 1=1`;
+
+    if (!include_existing) {
+      query += ` AND yr.id IS NULL`;
+    }
+
+    if (content_type === 'movie' || content_type === 'drama') {
+      query += ` AND c.content_type = '${content_type}'`;
+    }
+
+    if (recent_only) {
+      query += ` AND c.release_date >= '${oneYearAgoStr}'`;
+    }
+
+    query += ` ORDER BY c.popularity DESC LIMIT ? OFFSET ?`;
+
+    const contents = await db.prepare(query).bind(limit, offset).all<{ id: number; title: string; content_type: string }>();
+
+    let collected = 0;
+    const errors: string[] = [];
+    let debugInfo: any = null;
+    let usedInstance = '';
+
+    for (const content of contents.results || []) {
+      const searchQuery = `${content.title} ${content.content_type === 'movie' ? '영화' : '드라마'} 리뷰`;
+
+      try {
+        const result = await searchViaPiped(searchQuery);
+
+        if (!result || result.items.length === 0) {
+          errors.push(`${content.title}: ${result?.errors?.join(', ') || 'No results'}`);
+          continue;
+        }
+
+        usedInstance = result.instance;
+
+        // 첫 번째 응답을 디버그 정보로 저장
+        if (debug && !debugInfo) {
+          debugInfo = { query: searchQuery, response: result };
+        }
+
+        for (const item of result.items) {
+          // 썸네일 URL 정리 (프록시 URL에서 원본으로 변환)
+          let thumbnailUrl = item.thumbnail;
+          if (thumbnailUrl.includes('proxy.')) {
+            thumbnailUrl = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+          }
+
+          await db.prepare(`
+            INSERT INTO youtube_reviews (
+              content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'piped_api')
+            ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count, source = 'piped_api'
+          `).bind(
+            content.id,
+            item.videoId,
+            item.title,
+            item.uploaderName,
+            thumbnailUrl,
+            `https://www.youtube.com/watch?v=${item.videoId}`,
+            item.uploaded ? new Date(item.uploaded).toISOString() : null,
+            item.views
+          ).run();
+          collected++;
+        }
+      } catch (e) {
+        errors.push(`${content.title}: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      }
+    }
+
+    return c.json({
+      success: true,
+      collected,
+      processed: contents.results?.length || 0,
+      usedInstance,
+      errors: errors.length > 0 ? errors : undefined,
+      debug: debug ? debugInfo : undefined
+    });
+  } catch (error) {
+    console.error('Collect youtube reviews via Piped error:', error);
+    return c.json({ error: 'Failed to collect youtube reviews via Piped' }, 500);
   }
 });

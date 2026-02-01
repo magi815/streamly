@@ -1,5 +1,5 @@
 {
-  "name": "streamly-frontend",
+  "name": "whatview-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,10 +9,11 @@
     "lint": "eslint",
     "pages:build": "npx @opennextjs/cloudflare build",
     "pages:dev": "npx wrangler pages dev",
-    "pages:deploy": "npm run pages:build && npx wrangler pages deploy .open-next/assets --project-name=streamly"
+    "pages:deploy": "npm run pages:build && npx wrangler deploy"
   },
   "dependencies": {
     "next": "15.1.0",
+    "next-intl": "^4.8.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

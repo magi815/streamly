@@ -1,7 +1,17 @@
 import { Content, ContentDetail, Genre, Platform, PaginatedResponse, YouTubeReview } from '@/types/content';
+import { localeToCountry, type Locale } from '@/i18n/config';
 
-// Workers API URL (development: 127.0.0.1:8787, production: streamly-api.magi815.workers.dev)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://streamly-api.magi815.workers.dev/api/v1';
+// Workers API URL (development: 127.0.0.1:8787, production: whatview-api.magi815.workers.dev)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://whatview-api.magi815.workers.dev/api/v1';
+
+// Helper to add locale params to URL
+function addLocaleParams(params: URLSearchParams, locale?: string) {
+  if (locale) {
+    const country = localeToCountry[locale as Locale] || 'KR';
+    params.set('country', country);
+    params.set('language', locale);
+  }
+}
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -32,6 +42,7 @@ export async function getContents(params?: {
   ordering?: string;
   recent?: boolean;
   period?: string;
+  locale?: string;
 }): Promise<PaginatedResponse<Content>> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', params.page.toString());
@@ -40,43 +51,64 @@ export async function getContents(params?: {
   if (params?.ordering) searchParams.set('ordering', params.ordering);
   if (params?.recent) searchParams.set('recent', 'true');
   if (params?.period) searchParams.set('period', params.period);
+  addLocaleParams(searchParams, params?.locale);
 
   const query = searchParams.toString();
   return fetchAPI(`/contents${query ? `?${query}` : ''}`);
 }
 
-export async function getContent(id: number): Promise<ContentDetail> {
-  return fetchAPI(`/contents/${id}`);
+export async function getContent(id: number, locale?: string): Promise<ContentDetail> {
+  const searchParams = new URLSearchParams();
+  addLocaleParams(searchParams, locale);
+  const query = searchParams.toString();
+  return fetchAPI(`/contents/${id}${query ? `?${query}` : ''}`);
 }
 
-export async function getMovies(page = 1): Promise<PaginatedResponse<Content>> {
-  return fetchAPI(`/contents/movies?page=${page}`);
+export async function getMovies(page = 1, locale?: string): Promise<PaginatedResponse<Content>> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('page', page.toString());
+  addLocaleParams(searchParams, locale);
+  return fetchAPI(`/contents/movies?${searchParams.toString()}`);
 }
 
-export async function getDramas(page = 1): Promise<PaginatedResponse<Content>> {
-  return fetchAPI(`/contents/dramas?page=${page}`);
+export async function getDramas(page = 1, locale?: string): Promise<PaginatedResponse<Content>> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('page', page.toString());
+  addLocaleParams(searchParams, locale);
+  return fetchAPI(`/contents/dramas?${searchParams.toString()}`);
 }
 
-export async function getTrending(): Promise<Content[]> {
-  return fetchAPI('/contents/trending');
+export async function getTrending(locale?: string): Promise<Content[]> {
+  const searchParams = new URLSearchParams();
+  addLocaleParams(searchParams, locale);
+  const query = searchParams.toString();
+  return fetchAPI(`/contents/trending${query ? `?${query}` : ''}`);
 }
 
-export async function getNewReleases(): Promise<Content[]> {
-  return fetchAPI('/contents/new-releases');
+export async function getNewReleases(locale?: string): Promise<Content[]> {
+  const searchParams = new URLSearchParams();
+  addLocaleParams(searchParams, locale);
+  const query = searchParams.toString();
+  return fetchAPI(`/contents/new-releases${query ? `?${query}` : ''}`);
 }
 
 // 최근 인기 콘텐츠 (홈페이지용)
-export async function getRecentPopular(contentType: 'movie' | 'drama', limit = 6): Promise<Content[]> {
+export async function getRecentPopular(contentType: 'movie' | 'drama', limit = 6, locale?: string): Promise<Content[]> {
   const data = await getContents({
     content_type: contentType,
     ordering: '-popularity',
     recent: true,
+    locale,
   });
   return data.results.slice(0, limit);
 }
 
-export async function searchContents(query: string, page = 1): Promise<PaginatedResponse<Content>> {
-  return fetchAPI(`/contents/search?q=${encodeURIComponent(query)}&page=${page}`);
+export async function searchContents(query: string, page = 1, locale?: string): Promise<PaginatedResponse<Content>> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('q', query);
+  searchParams.set('page', page.toString());
+  addLocaleParams(searchParams, locale);
+  return fetchAPI(`/contents/search?${searchParams.toString()}`);
 }
 
 // 장르 API
@@ -86,11 +118,17 @@ export async function getGenres(contentType?: 'movie' | 'drama'): Promise<Genre[
 }
 
 // 플랫폼 API
-export async function getPlatforms(): Promise<Platform[]> {
-  return fetchAPI('/platforms');
+export async function getPlatforms(locale?: string): Promise<Platform[]> {
+  const searchParams = new URLSearchParams();
+  addLocaleParams(searchParams, locale);
+  const query = searchParams.toString();
+  return fetchAPI(`/platforms${query ? `?${query}` : ''}`);
 }
 
 // YouTube 리뷰 API
-export async function getContentReviews(contentId: number): Promise<YouTubeReview[]> {
-  return fetchAPI(`/contents/${contentId}/reviews`);
+export async function getContentReviews(contentId: number, locale?: string): Promise<YouTubeReview[]> {
+  const searchParams = new URLSearchParams();
+  addLocaleParams(searchParams, locale);
+  const query = searchParams.toString();
+  return fetchAPI(`/contents/${contentId}/reviews${query ? `?${query}` : ''}`);
 }

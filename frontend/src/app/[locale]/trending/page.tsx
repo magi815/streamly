@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import ContentCard from '@/components/ContentCard';
 import { ContentGridSkeleton } from '@/components/ContentCardSkeleton';
 import { getTrending } from '@/lib/api';
@@ -8,13 +9,15 @@ import { mockTrending } from '@/lib/mock-data';
 import { Content } from '@/types/content';
 
 export default function TrendingPage() {
+  const t = useTranslations('trending');
+  const locale = useLocale();
   const [trending, setTrending] = useState<Content[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const data = await getTrending();
+        const data = await getTrending(locale);
         setTrending(data);
       } catch (error) {
         console.error('API fetch failed, using mock data:', error);
@@ -25,11 +28,11 @@ export default function TrendingPage() {
     }
 
     fetchData();
-  }, []);
+  }, [locale]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
-      <h1 className="mb-8 text-3xl font-bold">🔥 인기 콘텐츠</h1>
+      <h1 className="mb-8 text-3xl font-bold">🔥 {t('title')}</h1>
       {isLoading ? (
         <ContentGridSkeleton count={10} />
       ) : (

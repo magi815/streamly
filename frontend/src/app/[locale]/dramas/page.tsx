@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import ContentCard from '@/components/ContentCard';
 import Pagination from '@/components/Pagination';
 import GenreFilter from '@/components/GenreFilter';
@@ -12,6 +13,8 @@ import { mockDramas } from '@/lib/mock-data';
 import { Content, Genre } from '@/types/content';
 
 function DramasContent() {
+  const t = useTranslations();
+  const locale = useLocale();
   const searchParams = useSearchParams();
   const page = parseInt(searchParams.get('page') || '1');
   const genre = searchParams.get('genre') ? parseInt(searchParams.get('genre')!) : undefined;
@@ -31,7 +34,7 @@ function DramasContent() {
       setIsLoading(true);
       try {
         const [contentsData, genresData] = await Promise.all([
-          getContents({ page, content_type: 'drama', genre, ordering, period }),
+          getContents({ page, content_type: 'drama', genre, ordering, period, locale }),
           getGenres('drama'),
         ]);
         setDramas(contentsData.results);
@@ -47,7 +50,7 @@ function DramasContent() {
     }
 
     fetchData();
-  }, [page, genre, ordering, period]);
+  }, [page, genre, ordering, period, locale]);
 
   const queryParams: Record<string, string> = { ordering };
   if (genre) queryParams.genre = genre.toString();
@@ -59,7 +62,7 @@ function DramasContent() {
     <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Header with Title and Sort */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold text-white">📺 드라마</h1>
+        <h1 className="text-3xl font-bold text-white">📺 {t('dramas.title')}</h1>
         <SortDropdown baseUrl="/dramas" />
       </div>
 
@@ -78,7 +81,7 @@ function DramasContent() {
         <>
           {/* Results count */}
           <p className="mb-4 text-sm text-gray-400">
-            총 {totalCount}개의 드라마
+            {t('search.resultsCount', { count: totalCount })}
           </p>
 
           {/* Content Grid */}
@@ -90,7 +93,7 @@ function DramasContent() {
             </div>
           ) : (
             <div className="py-12 text-center text-gray-400">
-              해당 장르의 드라마가 없습니다.
+              {t('common.noData')}
             </div>
           )}
 
@@ -108,11 +111,13 @@ function DramasContent() {
 }
 
 export default function DramasPage() {
+  const t = useTranslations('dramas');
+
   return (
     <Suspense fallback={
       <div className="mx-auto max-w-7xl px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white">📺 드라마</h1>
+          <h1 className="text-3xl font-bold text-white">📺 {t('title')}</h1>
         </div>
         <ContentGridSkeleton count={20} />
       </div>

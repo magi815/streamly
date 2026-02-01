@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { getContent as fetchContent } from '@/lib/api';
 import { mockMovies, mockDramas, getMockReviews } from '@/lib/mock-data';
 import { YouTubeReview, ContentDetail, Content } from '@/types/content';
+import { localeToCountry, type Locale } from '@/i18n/config';
 
 // Mock 데이터에서 콘텐츠 찾기 (fallback용)
 function getMockContent(id: number): Content | undefined {
@@ -14,19 +16,68 @@ function getMockContent(id: number): Content | undefined {
   return allContents.find((c) => c.id === id);
 }
 
-// 조회수 포맷팅
-function formatViewCount(count: number): string {
-  if (count >= 10000) {
-    return `${(count / 10000).toFixed(0)}만회`;
+// 플랫폼별 검색 URL - country_platforms의 search_url_template 사용
+function getPlatformSearchUrl(platform: { code: string; search_url_template?: string | null }, title: string, locale: Locale): string {
+  const encodedTitle = encodeURIComponent(title);
+
+  // Use search_url_template from API if available
+  if (platform.search_url_template) {
+    return platform.search_url_template.replace('{title}', encodedTitle);
   }
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}천회`;
+
+  // Fallback to hardcoded URLs based on locale
+  const country = localeToCountry[locale];
+  const searchUrls: Record<string, Record<string, string>> = {
+    KR: {
+      netflix: `https://www.netflix.com/search?q=${encodedTitle}`,
+      disney_plus: `https://www.disneyplus.com/ko-kr/search?q=${encodedTitle}`,
+      tving: `https://www.tving.com/search?keyword=${encodedTitle}`,
+      wavve: `https://www.wavve.com/search?searchWord=${encodedTitle}`,
+      watcha: `https://watcha.com/search?query=${encodedTitle}`,
+      coupang_play: `https://www.coupangplay.com/search?q=${encodedTitle}`,
+      apple_tv_plus: `https://tv.apple.com/kr/search?term=${encodedTitle}`,
+    },
+    US: {
+      netflix: `https://www.netflix.com/search?q=${encodedTitle}`,
+      disney_plus: `https://www.disneyplus.com/search?q=${encodedTitle}`,
+      hulu: `https://www.hulu.com/search?q=${encodedTitle}`,
+      amazon_prime: `https://www.amazon.com/s?k=${encodedTitle}&i=instant-video`,
+      max: `https://www.max.com/search?q=${encodedTitle}`,
+      apple_tv_plus: `https://tv.apple.com/us/search?term=${encodedTitle}`,
+      paramount_plus: `https://www.paramountplus.com/search/?q=${encodedTitle}`,
+    },
+    JP: {
+      netflix: `https://www.netflix.com/search?q=${encodedTitle}`,
+      disney_plus: `https://www.disneyplus.com/ja-jp/search?q=${encodedTitle}`,
+      amazon_prime: `https://www.amazon.co.jp/s?k=${encodedTitle}&i=instant-video`,
+      u_next: `https://video.unext.jp/search?query=${encodedTitle}`,
+      dtv: `https://video.dmkt-sp.jp/search?keyword=${encodedTitle}`,
+      hulu: `https://www.hulu.jp/search?q=${encodedTitle}`,
+    },
+  };
+
+  return searchUrls[country]?.[platform.code] || '#';
+}
+
+// 조회수 포맷팅 (locale-aware)
+function formatViewCount(count: number, locale: Locale): string {
+  if (locale === 'ko') {
+    if (count >= 10000) return `${(count / 10000).toFixed(0)}만회`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}천회`;
+    return `${count}회`;
+  } else if (locale === 'ja') {
+    if (count >= 10000) return `${(count / 10000).toFixed(0)}万回`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}千回`;
+    return `${count}回`;
+  } else {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M views`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}K views`;
+    return `${count} views`;
   }
-  return `${count}회`;
 }
 
 // YouTube 리뷰 카드 컴포넌트
-function YouTubeReviewCard({ review }: { review: YouTubeReview }) {
+function YouTubeReviewCard({ review, locale }: { review: YouTubeReview; locale: Locale }) {
   return (
     <a
       href={review.youtube_url}
@@ -58,12 +109,6 @@ function YouTubeReviewCard({ review }: { review: YouTubeReview }) {
             </svg>
           </div>
         </div>
-        {/* Featured badge */}
-        {review.is_featured && (
-          <div className="absolute left-2 top-2 rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white">
-            추천
-          </div>
-        )}
       </div>
       <div className="p-3">
         <h4 className="mb-1 line-clamp-2 text-sm font-medium text-white group-hover:text-purple-400">
@@ -71,7 +116,7 @@ function YouTubeReviewCard({ review }: { review: YouTubeReview }) {
         </h4>
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>{review.channel_name}</span>
-          <span>조회수 {formatViewCount(review.view_count)}</span>
+          <span>{formatViewCount(review.view_count, locale)}</span>
         </div>
       </div>
     </a>
@@ -98,7 +143,13 @@ function ContentDetailSkeleton() {
   );
 }
 
+const REVIEWS_PER_PAGE = 6;
+
 export default function ContentDetailPage() {
+  const t = useTranslations('content');
+  const tCommon = useTranslations('common');
+  const tFilter = useTranslations('filter');
+  const locale = useLocale() as Locale;
   const params = useParams();
   const contentId = parseInt(params.id as string);
 
@@ -106,11 +157,12 @@ export default function ContentDetailPage() {
   const [reviews, setReviews] = useState<YouTubeReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [visibleReviews, setVisibleReviews] = useState(REVIEWS_PER_PAGE);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const data = await fetchContent(contentId);
+        const data = await fetchContent(contentId, locale);
         setContent(data);
         setReviews(data.youtube_reviews || []);
       } catch (error) {
@@ -132,7 +184,7 @@ export default function ContentDetailPage() {
     }
 
     fetchData();
-  }, [contentId]);
+  }, [contentId, locale]);
 
   if (isLoading) {
     return <ContentDetailSkeleton />;
@@ -141,15 +193,16 @@ export default function ContentDetailPage() {
   if (notFound || !content) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <h1 className="mb-4 text-2xl font-bold text-white">콘텐츠를 찾을 수 없습니다</h1>
+        <h1 className="mb-4 text-2xl font-bold text-white">{tCommon('noData')}</h1>
         <Link href="/" className="text-purple-400 hover:text-purple-300">
-          홈으로 돌아가기
+          ← {tCommon('viewMore')}
         </Link>
       </div>
     );
   }
 
   const year = content.release_date?.split('-')[0] || '';
+  const contentTypeLabel = content.content_type === 'movie' ? tFilter('movie') : tFilter('drama');
 
   return (
     <div>
@@ -195,13 +248,15 @@ export default function ContentDetailPage() {
             <h1 className="mb-2 text-3xl font-bold text-white md:text-4xl">
               {content.title}
             </h1>
-            <p className="mb-4 text-lg text-gray-400">{content.title_en}</p>
+            {content.title_en && (
+              <p className="mb-4 text-lg text-gray-400">{content.title_en}</p>
+            )}
 
             {/* Meta Info */}
             <div className="mb-6 flex flex-wrap items-center gap-4 text-sm text-gray-400">
               {year && <span>{year}</span>}
-              <span>{content.content_type === 'movie' ? '영화' : '드라마'}</span>
-              {content.runtime && <span>{content.runtime}분</span>}
+              <span>{contentTypeLabel}</span>
+              {content.runtime && <span>{content.runtime}{t('minutes')}</span>}
               <span className="flex items-center gap-1">
                 <span className="text-yellow-400">★</span>
                 {content.rating.toFixed(1)}
@@ -223,7 +278,7 @@ export default function ContentDetailPage() {
             {/* Overview */}
             {content.overview && (
               <div className="mb-6">
-                <h2 className="mb-2 text-lg font-semibold text-white">줄거리</h2>
+                <h2 className="mb-2 text-lg font-semibold text-white">{t('overview')}</h2>
                 <p className="leading-relaxed text-gray-300">{content.overview}</p>
               </div>
             )}
@@ -232,13 +287,13 @@ export default function ContentDetailPage() {
             <div className="grid gap-4 md:grid-cols-2">
               {content.director && (
                 <div>
-                  <h3 className="mb-1 text-sm font-medium text-gray-400">감독</h3>
+                  <h3 className="mb-1 text-sm font-medium text-gray-400">{t('director')}</h3>
                   <p className="text-white">{content.director}</p>
                 </div>
               )}
               {content.cast && content.cast.length > 0 && (
                 <div>
-                  <h3 className="mb-1 text-sm font-medium text-gray-400">출연</h3>
+                  <h3 className="mb-1 text-sm font-medium text-gray-400">{t('cast')}</h3>
                   <p className="text-white">{content.cast.join(', ')}</p>
                 </div>
               )}
@@ -247,24 +302,30 @@ export default function ContentDetailPage() {
             {/* Watch Providers (OTT Platforms) */}
             {content.platforms && content.platforms.length > 0 && (
               <div className="mt-6">
-                <h3 className="mb-3 text-sm font-medium text-gray-400">시청 가능한 곳</h3>
+                <h3 className="mb-3 text-sm font-medium text-gray-400">{t('watchOn')}</h3>
                 <div className="flex flex-wrap gap-3">
                   {content.platforms.map((platform) => (
                     <a
-                      key={platform.id}
-                      href={platform.website_url || '#'}
+                      key={platform.id || platform.code}
+                      href={getPlatformSearchUrl(platform, content.title, locale)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 transition-colors hover:bg-gray-700"
                     >
                       {platform.logo_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={platform.logo_url}
                           alt={platform.name}
                           className="h-6 w-6 rounded"
                         />
                       )}
-                      <span className="text-sm font-medium text-white">{platform.name}</span>
+                      <span className="text-sm font-medium text-white">
+                        {platform.name_local || platform.name}
+                      </span>
+                      <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
                     </a>
                   ))}
                 </div>
@@ -280,13 +341,28 @@ export default function ContentDetailPage() {
               <svg className="h-7 w-7 text-red-600" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
               </svg>
-              리뷰 영상
+              {t('reviews')}
+              <span className="text-base font-normal text-gray-400">({reviews.length})</span>
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {reviews.map((review) => (
-                <YouTubeReviewCard key={review.id} review={review} />
+              {reviews.slice(0, visibleReviews).map((review) => (
+                <YouTubeReviewCard key={review.id} review={review} locale={locale} />
               ))}
             </div>
+            {/* Load More button */}
+            {reviews.length > visibleReviews && (
+              <div className="mt-6 text-center">
+                <button
+                  onClick={() => setVisibleReviews(prev => prev + REVIEWS_PER_PAGE)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-6 py-3 font-medium text-white transition-colors hover:bg-gray-700"
+                >
+                  {t('moreReviews')} ({reviews.length - visibleReviews})
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </section>
         )}
 
@@ -296,7 +372,7 @@ export default function ContentDetailPage() {
             href="/"
             className="inline-flex items-center gap-2 text-gray-400 hover:text-white"
           >
-            ← 돌아가기
+            ← {tCommon('close')}
           </Link>
         </div>
       </div>
