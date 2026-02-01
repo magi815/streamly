@@ -472,24 +472,33 @@ async function collectYouTubeReviewsViaPiped(
   return { collected, language };
 }
 
-// 다국어 번역 수집 (영어, 일본어)
-async function collectTranslations(db: D1Database, apiKey: string, limit = 50): Promise<{ en: number; ja: number }> {
-  console.log('Collecting translations...');
+// 다국어 번역 수집 (영어, 일본어 - overview, director, cast 포함)
+async function collectTranslations(
+  db: D1Database,
+  apiKey: string,
+  limit = 50,
+  includeCredits = true
+): Promise<{ translations: { en: number; ja: number }; directors: { en: number; ja: number }; cast: { en: number; ja: number } }> {
+  console.log(`Collecting translations (limit=${limit}, includeCredits=${includeCredits})...`);
 
-  const results = { en: 0, ja: 0 };
+  const results = {
+    translations: { en: 0, ja: 0 },
+    directors: { en: 0, ja: 0 },
+    cast: { en: 0, ja: 0 },
+  };
   const languages = [
     { code: 'en', tmdbCode: 'en-US' },
     { code: 'ja', tmdbCode: 'ja-JP' },
   ];
 
-  // 번역이 없는 최근 콘텐츠 가져오기 (최근 업데이트 순)
+  // 번역이 없는 최근 콘텐츠 가져오기 (인기순 정렬)
   const contents = await db.prepare(`
     SELECT c.id, c.tmdb_id, c.content_type, c.title
     FROM contents c
     WHERE c.id NOT IN (
       SELECT DISTINCT content_id FROM content_translations WHERE language_code IN ('en', 'ja')
     )
-    ORDER BY c.updated_at DESC
+    ORDER BY c.popularity DESC
     LIMIT ?
   `).bind(limit).all<{ id: number; tmdb_id: number; content_type: string; title: string }>();
 
@@ -498,6 +507,7 @@ async function collectTranslations(db: D1Database, apiKey: string, limit = 50): 
 
     for (const lang of languages) {
       try {
+        // 1. 콘텐츠 기본 정보 가져오기 (title, overview)
         const res = await fetch(
           `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}?api_key=${apiKey}&language=${lang.tmdbCode}`
         );
@@ -512,24 +522,87 @@ async function collectTranslations(db: D1Database, apiKey: string, limit = 50): 
         };
 
         const title = data.title || data.name;
+
+        // 2. Credits 정보 가져오기 (director, cast)
+        let director: string | null = null;
+        let castData: Array<{ id: number; name: string; character: string; profile_path: string | null; order: number }> = [];
+
+        if (includeCredits) {
+          try {
+            const creditsRes = await fetch(
+              `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}/credits?api_key=${apiKey}&language=${lang.tmdbCode}`
+            );
+
+            if (creditsRes.ok) {
+              const credits = await creditsRes.json() as {
+                crew?: Array<{ id: number; name: string; job: string }>;
+                cast?: Array<{ id: number; name: string; character: string; profile_path: string | null; order: number }>;
+              };
+
+              // Director 찾기
+              if (mediaType === 'movie') {
+                const directorInfo = credits.crew?.find(c => c.job === 'Director');
+                director = directorInfo?.name || null;
+              } else {
+                const creator = credits.crew?.find(c => c.job === 'Executive Producer' || c.job === 'Creator');
+                director = creator?.name || null;
+              }
+
+              // Cast 상위 10명
+              castData = (credits.cast || []).slice(0, 10);
+            }
+          } catch (creditsErr) {
+            // Credits 실패해도 기본 번역은 저장
+          }
+        }
+
+        // 3. 번역 정보 저장 (title, overview, director)
         if (title && title !== content.title) {
           await db.prepare(`
-            INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, updated_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, director, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(content_id, language_code) DO UPDATE SET
               title = excluded.title,
               overview = COALESCE(excluded.overview, content_translations.overview),
               poster_path = COALESCE(excluded.poster_path, content_translations.poster_path),
+              director = COALESCE(excluded.director, content_translations.director),
               updated_at = datetime('now')
           `).bind(
             content.id,
             lang.code,
             title,
             data.overview || null,
-            data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null
+            data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null,
+            director
           ).run();
 
-          results[lang.code as 'en' | 'ja']++;
+          results.translations[lang.code as 'en' | 'ja']++;
+          if (director) results.directors[lang.code as 'en' | 'ja']++;
+        }
+
+        // 4. Cast 정보 저장 (언어별)
+        for (const actor of castData) {
+          try {
+            await db.prepare(`
+              INSERT INTO content_cast (content_id, tmdb_person_id, name, character_name, profile_url, order_num, language_code)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(content_id, tmdb_person_id, language_code) DO UPDATE SET
+                name = excluded.name,
+                character_name = excluded.character_name,
+                profile_url = COALESCE(excluded.profile_url, content_cast.profile_url)
+            `).bind(
+              content.id,
+              actor.id,
+              actor.name,
+              actor.character || null,
+              actor.profile_path ? `${TMDB_IMAGE_BASE}/w185${actor.profile_path}` : null,
+              actor.order,
+              lang.code
+            ).run();
+            results.cast[lang.code as 'en' | 'ja']++;
+          } catch (castErr) {
+            // 개별 캐스트 저장 실패는 무시
+          }
         }
       } catch (e) {
         console.error(`Translation fetch error for ${content.title} (${lang.code}):`, e);
@@ -537,7 +610,9 @@ async function collectTranslations(db: D1Database, apiKey: string, limit = 50): 
     }
   }
 
-  console.log(`Collected translations: en=${results.en}, ja=${results.ja}`);
+  console.log(`Collected translations: en=${results.translations.en}, ja=${results.translations.ja}`);
+  console.log(`Collected directors: en=${results.directors.en}, ja=${results.directors.ja}`);
+  console.log(`Collected cast: en=${results.cast.en}, ja=${results.cast.ja}`);
   return results;
 }
 

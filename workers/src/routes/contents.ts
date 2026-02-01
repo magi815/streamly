@@ -66,7 +66,7 @@ async function getPlatformsForContent(
   return [];
 }
 
-// Helper function to get translated content
+// Helper function to get translated content (including director)
 async function getTranslatedContent(
   db: D1Database,
   content: Content,
@@ -79,10 +79,10 @@ async function getTranslatedContent(
 
   // Try to get translation from content_translations table
   const translation = await db.prepare(
-    `SELECT title, overview, poster_path
+    `SELECT title, overview, poster_path, director
      FROM content_translations
      WHERE content_id = ? AND language_code = ?`
-  ).bind(content.id, language).first<{ title: string; overview: string | null; poster_path: string | null }>();
+  ).bind(content.id, language).first<{ title: string; overview: string | null; poster_path: string | null; director: string | null }>();
 
   if (translation) {
     return {
@@ -90,6 +90,7 @@ async function getTranslatedContent(
       title: translation.title,
       overview: translation.overview || content.overview,
       poster_url: translation.poster_path || content.poster_url,
+      director: translation.director || content.director,
     };
   }
 
@@ -98,11 +99,51 @@ async function getTranslatedContent(
     return {
       ...content,
       title: content.title_en,
-      // Keep original overview if no translation (better than nothing)
+      // Keep original overview and director if no translation
     };
   }
 
   return content;
+}
+
+// Helper function to get cast for content by language
+async function getCastForContent(
+  db: D1Database,
+  contentId: number,
+  language: LanguageCode
+): Promise<string[]> {
+  // Try to get cast in the requested language
+  const cast = await db.prepare(
+    `SELECT name FROM content_cast
+     WHERE content_id = ? AND language_code = ?
+     ORDER BY order_num LIMIT 10`
+  ).bind(contentId, language).all<{ name: string }>();
+
+  if (cast.results && cast.results.length > 0) {
+    return cast.results.map(c => c.name);
+  }
+
+  // Fallback to Korean cast if no translation available
+  if (language !== 'ko') {
+    const koCast = await db.prepare(
+      `SELECT name FROM content_cast
+       WHERE content_id = ? AND language_code = 'ko'
+       ORDER BY order_num LIMIT 10`
+    ).bind(contentId).all<{ name: string }>();
+
+    if (koCast.results && koCast.results.length > 0) {
+      return koCast.results.map(c => c.name);
+    }
+  }
+
+  // Final fallback: get any cast without language filter (backward compatibility)
+  const anyCast = await db.prepare(
+    `SELECT name FROM content_cast
+     WHERE content_id = ?
+     ORDER BY order_num LIMIT 10`
+  ).bind(contentId).all<{ name: string }>();
+
+  return (anyCast.results || []).map(c => c.name);
 }
 
 // Helper function to get review count for content by language
@@ -452,7 +493,7 @@ contentsRoutes.get('/:id', async (c) => {
     return c.json({ error: 'Content not found' }, 404);
   }
 
-  // Apply translation
+  // Apply translation (includes director)
   const translated = await getTranslatedContent(db, content, language);
 
   // Get genres
@@ -461,10 +502,8 @@ contentsRoutes.get('/:id', async (c) => {
   // Get platforms for the requested country
   const platforms = await getPlatformsForContent(db, id, country);
 
-  // Get cast
-  const castResult = await db.prepare(
-    'SELECT name FROM content_cast WHERE content_id = ? ORDER BY order_num LIMIT 10'
-  ).bind(id).all<{ name: string }>();
+  // Get cast (with language-specific names)
+  const cast = await getCastForContent(db, id, language);
 
   // Get YouTube reviews (filter by language only - no fallback)
   const reviews = await db.prepare(
@@ -475,7 +514,7 @@ contentsRoutes.get('/:id', async (c) => {
     ...translated,
     genres,
     platforms,
-    cast: (castResult.results || []).map(c => c.name),
+    cast,
     youtube_reviews: reviews.results || [],
   });
 });

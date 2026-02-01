@@ -1070,11 +1070,11 @@ adminRoutes.post('/collect-youtube-reviews', async (c) => {
   }
 });
 
-// 다국어 번역 수집 (TMDB Translations API)
+// 다국어 번역 수집 (TMDB API - overview, director, cast 포함)
 adminRoutes.post('/collect-translations', async (c) => {
   const db = c.env.DB;
   const apiKey = c.env.TMDB_API_KEY;
-  const { limit = 50, offset = 0, language = 'all' } = await c.req.json().catch(() => ({ limit: 50, offset: 0, language: 'all' }));
+  const { limit = 50, offset = 0, language = 'all', include_credits = true } = await c.req.json().catch(() => ({ limit: 50, offset: 0, language: 'all', include_credits: true }));
 
   if (!apiKey) {
     return c.json({ error: 'TMDB_API_KEY not configured' }, 400);
@@ -1100,12 +1100,14 @@ adminRoutes.post('/collect-translations', async (c) => {
     const total = totalResult?.count || 0;
 
     const contents = await db.prepare(
-      `SELECT id, tmdb_id, content_type, title FROM contents ORDER BY id LIMIT ? OFFSET ?`
+      `SELECT id, tmdb_id, content_type, title FROM contents ORDER BY popularity DESC LIMIT ? OFFSET ?`
     ).bind(limit, offset).all<{ id: number; tmdb_id: number; content_type: string; title: string }>();
 
     const results = {
       processed: 0,
       translations: { en: 0, ja: 0 },
+      directors: { en: 0, ja: 0 },
+      cast: { en: 0, ja: 0 },
       errors: [] as string[],
     };
 
@@ -1116,7 +1118,7 @@ adminRoutes.post('/collect-translations', async (c) => {
         const { tmdbCode, iso } = languageMap[lang];
 
         try {
-          // 해당 언어로 콘텐츠 정보 직접 가져오기
+          // 1. 콘텐츠 기본 정보 가져오기 (title, overview)
           const res = await fetch(
             `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}?api_key=${apiKey}&language=${tmdbCode}`
           );
@@ -1136,25 +1138,87 @@ adminRoutes.post('/collect-translations', async (c) => {
           // 영화는 title, TV는 name 사용
           const title = data.title || data.name;
 
-          // 제목이 있고, 원본 한국어 제목과 다른 경우에만 저장
+          // 2. Credits 정보 가져오기 (director, cast)
+          let director: string | null = null;
+          let castData: Array<{ id: number; name: string; character: string; profile_path: string | null; order: number }> = [];
+
+          if (include_credits) {
+            try {
+              const creditsRes = await fetch(
+                `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}/credits?api_key=${apiKey}&language=${tmdbCode}`
+              );
+
+              if (creditsRes.ok) {
+                const credits = await creditsRes.json() as {
+                  crew?: Array<{ id: number; name: string; job: string }>;
+                  cast?: Array<{ id: number; name: string; character: string; profile_path: string | null; order: number }>;
+                };
+
+                // Director 찾기 (영화는 Director, TV는 일반적으로 Creator나 Executive Producer)
+                if (mediaType === 'movie') {
+                  const directorInfo = credits.crew?.find(c => c.job === 'Director');
+                  director = directorInfo?.name || null;
+                } else {
+                  // TV의 경우 Executive Producer 또는 Creator 중 첫 번째
+                  const creator = credits.crew?.find(c => c.job === 'Executive Producer' || c.job === 'Creator');
+                  director = creator?.name || null;
+                }
+
+                // Cast 상위 10명
+                castData = (credits.cast || []).slice(0, 10);
+              }
+            } catch (creditsErr) {
+              // Credits 실패해도 기본 번역은 저장
+            }
+          }
+
+          // 3. 번역 정보 저장 (title, overview, director)
           if (title && title !== content.title) {
             await db.prepare(`
-              INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, updated_at)
-              VALUES (?, ?, ?, ?, ?, datetime('now'))
+              INSERT INTO content_translations (content_id, language_code, title, overview, poster_path, director, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
               ON CONFLICT(content_id, language_code) DO UPDATE SET
                 title = excluded.title,
                 overview = COALESCE(excluded.overview, content_translations.overview),
                 poster_path = COALESCE(excluded.poster_path, content_translations.poster_path),
+                director = COALESCE(excluded.director, content_translations.director),
                 updated_at = datetime('now')
             `).bind(
               content.id,
               iso,
               title,
               data.overview || null,
-              data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null
+              data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null,
+              director
             ).run();
 
             results.translations[lang as 'en' | 'ja']++;
+            if (director) results.directors[lang as 'en' | 'ja']++;
+          }
+
+          // 4. Cast 정보 저장 (언어별)
+          for (const actor of castData) {
+            try {
+              await db.prepare(`
+                INSERT INTO content_cast (content_id, tmdb_person_id, name, character_name, profile_url, order_num, language_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(content_id, tmdb_person_id, language_code) DO UPDATE SET
+                  name = excluded.name,
+                  character_name = excluded.character_name,
+                  profile_url = COALESCE(excluded.profile_url, content_cast.profile_url)
+              `).bind(
+                content.id,
+                actor.id,
+                actor.name,
+                actor.character || null,
+                actor.profile_path ? `${TMDB_IMAGE_BASE}/w185${actor.profile_path}` : null,
+                actor.order,
+                iso
+              ).run();
+              results.cast[lang as 'en' | 'ja']++;
+            } catch (castErr) {
+              // 개별 캐스트 저장 실패는 무시
+            }
           }
         } catch (e) {
           results.errors.push(`${content.title} (${lang}): ${e instanceof Error ? e.message : 'Unknown error'}`);

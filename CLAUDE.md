@@ -137,18 +137,22 @@ project-claude/
 - [x] Fallback 인스턴스 지원 (5개 인스턴스 순차 시도)
 - [x] 전체 콘텐츠 리뷰 수집 완료 (~5,000개 리뷰)
 
-### Phase 7: 다국가/다국어(i18n) 지원 (2026-02-01)
+### Phase 7: 다국가/다국어(i18n) 지원 (2026-02-01~02)
 - [x] next-intl v4.8.1 적용 (프론트엔드 i18n)
 - [x] 3개국 지원: KR(한국), US(미국), JP(일본)
 - [x] 3개 언어 지원: ko(한국어), en(영어), ja(일본어)
-- [x] `content_translations` 테이블 생성 (언어별 제목/설명/포스터)
+- [x] `content_translations` 테이블 생성 (언어별 제목/설명/포스터/감독)
 - [x] `country_platforms` 테이블 생성 (국가별 OTT 플랫폼 매핑)
 - [x] TMDB API에서 다국어 번역 수집 (`/collect-translations`)
 - [x] API에 `country` 및 `language` 파라미터 추가
-- [x] 178+ 번역 항목 완성 (ko, en, ja)
-- [x] 20개 국가별 OTT 플랫폼 매핑 완료
 - [x] 언어 선택기(LanguageSelector) 컴포넌트 구현
 - [x] 자동 언어 감지 (Accept-Language 헤더 기반)
+- [x] 다국어 YouTube 리뷰 수집 (ko, en, ja)
+- [x] **다국어 Director 수집** (2026-02-02)
+- [x] **다국어 Cast 수집** (content_cast에 language_code, tmdb_person_id 추가)
+- [x] 번역 수집 자동화 (Cron Triggers에 포함)
+- [x] ~450+ 번역 항목 완성 (en: ~230, ja: ~200)
+- [x] ~3,500+ 다국어 Cast 정보 수집
 
 ---
 
@@ -209,11 +213,14 @@ project-claude/
 #### 번역 수집 파라미터 (`/collect-translations`)
 ```json
 {
-  "limit": 50,           // 처리할 콘텐츠 수 (기본: 50)
-  "offset": 0,           // 시작 위치
-  "language": "all"      // "en", "ja", 또는 "all" (기본: all)
+  "limit": 50,             // 처리할 콘텐츠 수 (기본: 50)
+  "offset": 0,             // 시작 위치
+  "language": "all",       // "en", "ja", 또는 "all" (기본: all)
+  "include_credits": true  // director, cast 포함 여부 (기본: true)
 }
 ```
+
+**수집 항목**: title, overview, poster_path, **director**, **cast** (상위 10명)
 
 #### Piped API 수집 파라미터 (`/collect-youtube-reviews-piped`)
 ```json
@@ -261,32 +268,38 @@ Workers의 Cron Triggers로 콘텐츠와 리뷰를 자동 수집합니다. (무�
 
 ---
 
-## 현재 데이터 현황 (2026-01-27 기준)
+## 현재 데이터 현황 (2026-02-02 기준)
 
 | 항목 | 수량 |
 |------|------|
-| 총 콘텐츠 | **~1,173개** |
-| 영화 | ~580개 |
-| 드라마 | ~593개 |
-| 장르 | 19개 |
-| OTT 플랫폼 | 11개 (한국 지원 6개) |
-| YouTube 리뷰 | **~5,000개** |
-| - YouTube API 수집 | ~1,900개 |
-| - Piped API 수집 | ~3,100개 |
+| 총 콘텐츠 | **~1,186개** |
+| 영화 | ~588개 |
+| 드라마 | ~598개 |
+| 장르 | 27개 |
+| OTT 플랫폼 | 17개 (KR 6개, US 6개, JP 5개) |
+| YouTube 리뷰 | **~8,300개** (ko/en/ja) |
+| 다국어 번역 | **~450개** (en ~230, ja ~200) |
+| 다국어 Cast | **~3,500개** |
 
 ---
 
 ## 데이터베이스 스키마
 
 ### 주요 테이블
-- `contents`: 영화/드라마 정보 (TMDb 데이터)
+- `contents`: 영화/드라마 정보 (TMDb 데이터, 기본 한국어)
+- `content_translations`: 다국어 번역 (title, overview, poster_path, **director**)
+  - `language_code`: ko, en, ja
 - `genres`: 장르 정보
-- `platforms`: OTT 플랫폼 정보 (Netflix, Tving, Wavve 등)
+- `platforms`: OTT 플랫폼 기본 정보
+- `country_platforms`: 국가별 플랫폼 매핑 (KR, US, JP)
 - `content_genres`: 콘텐츠-장르 매핑
-- `content_platforms`: 콘텐츠-플랫폼 매핑 (시청 가능 여부)
+- `content_platforms`: 콘텐츠-플랫폼 매핑 (country_code 포함)
 - `content_cast`: 출연진 정보
+  - `language_code`: 다국어 지원 (ko, en, ja)
+  - `tmdb_person_id`: TMDB 인물 ID (다국어 매핑용)
 - `youtube_reviews`: YouTube 리뷰 정보
-  - `source` 컬럼: `youtube_api` 또는 `piped_api` (수집 출처 구분)
+  - `source`: `youtube_api` 또는 `piped_api`
+  - `country_code`: 리뷰 언어 (ko, en, ja)
 
 ### 지원 플랫폼 (TMDb Provider ID)
 | ID | 플랫폼 | 코드 |
