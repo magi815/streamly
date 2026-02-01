@@ -9,21 +9,37 @@ interface ContentCardProps {
   content: Content;
 }
 
-// OTT 플랫폼 아이콘 매핑
+// OTT 플랫폼 아이콘 매핑 (KR, US, JP)
 const platformIcons: Record<string, { icon: string; color: string; name: string }> = {
-  netflix: { icon: 'N', color: 'bg-red-600', name: '넷플릭스' },
-  tving: { icon: 'T', color: 'bg-red-500', name: '티빙' },
-  wavve: { icon: 'W', color: 'bg-blue-600', name: '웨이브' },
-  watcha: { icon: 'W', color: 'bg-pink-500', name: '왓챠' },
-  disney_plus: { icon: 'D+', color: 'bg-blue-700', name: '디즈니+' },
-  apple_tv_plus: { icon: 'A', color: 'bg-gray-700', name: 'Apple TV+' },
-  coupang_play: { icon: 'C', color: 'bg-yellow-500', name: '쿠팡플레이' },
+  // Korea
+  netflix: { icon: 'N', color: 'bg-red-600', name: 'Netflix' },
+  tving: { icon: 'T', color: 'bg-red-500', name: 'TVING' },
+  wavve: { icon: 'W', color: 'bg-blue-600', name: 'Wavve' },
+  watcha: { icon: 'Wc', color: 'bg-pink-500', name: 'Watcha' },
+  disney_plus: { icon: 'D+', color: 'bg-blue-700', name: 'Disney+' },
+  apple_tv_plus: { icon: 'A+', color: 'bg-gray-700', name: 'Apple TV+' },
+  coupang_play: { icon: 'CP', color: 'bg-yellow-500', name: 'Coupang Play' },
+  // US
+  amazon_prime: { icon: 'P', color: 'bg-blue-500', name: 'Prime Video' },
+  hulu: { icon: 'H', color: 'bg-green-500', name: 'Hulu' },
+  max: { icon: 'M', color: 'bg-purple-600', name: 'Max' },
+  paramount_plus: { icon: 'P+', color: 'bg-blue-800', name: 'Paramount+' },
+  // Japan
+  u_next: { icon: 'U', color: 'bg-blue-400', name: 'U-NEXT' },
+  dtv: { icon: 'dT', color: 'bg-red-400', name: 'dTV' },
+  abema: { icon: 'Ab', color: 'bg-green-600', name: 'ABEMA' },
 };
 
 export default function ContentCard({ content }: ContentCardProps) {
   const t = useTranslations('filter');
   const year = content.release_date?.split('-')[0] || '';
-  const platforms = content.platforms || [];
+
+  // 플랫폼 중복 제거 (code 기준)
+  const platforms = (content.platforms || []).filter(
+    (platform, index, self) =>
+      index === self.findIndex(p => p.code === platform.code)
+  );
+
   const reviewCount = content.review_count || 0;
 
   return (
@@ -48,14 +64,17 @@ export default function ContentCard({ content }: ContentCardProps) {
           <div className="absolute top-2 right-2 flex gap-1">
             {platforms.slice(0, 3).map((platform) => {
               const iconInfo = platformIcons[platform.code];
-              if (!iconInfo) return null;
+              // 아이콘 정보가 없으면 기본 아이콘 사용
+              const icon = iconInfo?.icon || platform.code?.charAt(0).toUpperCase() || '?';
+              const color = iconInfo?.color || 'bg-gray-600';
+              const name = iconInfo?.name || platform.name || platform.code;
               return (
                 <div
-                  key={platform.id}
-                  className={`flex h-6 w-6 items-center justify-center rounded ${iconInfo.color} text-[10px] font-bold text-white`}
-                  title={iconInfo.name}
+                  key={platform.code}
+                  className={`flex h-6 w-6 items-center justify-center rounded ${color} text-[10px] font-bold text-white`}
+                  title={name}
                 >
-                  {iconInfo.icon}
+                  {icon}
                 </div>
               );
             })}

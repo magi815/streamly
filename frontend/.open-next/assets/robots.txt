@@ -1,0 +1,9 @@
+# WhatView Robots.txt
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://whatview.magi815.workers.dev/sitemap.xml
+
+# Crawl-delay (optional)
+Crawl-delay: 1

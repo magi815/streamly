@@ -1,0 +1,15 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/sitemap.xml/route": "app/sitemap.xml/route.js",
+  "/page": "app/page.js",
+  "/[locale]/movies/page": "app/[locale]/movies/page.js",
+  "/[locale]/new-releases/page": "app/[locale]/new-releases/page.js",
+  "/[locale]/trending/page": "app/[locale]/trending/page.js",
+  "/[locale]/dramas/page": "app/[locale]/dramas/page.js",
+  "/[locale]/terms/page": "app/[locale]/terms/page.js",
+  "/[locale]/privacy/page": "app/[locale]/privacy/page.js",
+  "/[locale]/page": "app/[locale]/page.js",
+  "/[locale]/search/page": "app/[locale]/search/page.js",
+  "/[locale]/content/[id]/page": "app/[locale]/content/[id]/page.js"
+}

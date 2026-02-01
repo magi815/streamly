@@ -304,7 +304,12 @@ export default function ContentDetailPage() {
               <div className="mt-6">
                 <h3 className="mb-3 text-sm font-medium text-gray-400">{t('watchOn')}</h3>
                 <div className="flex flex-wrap gap-3">
-                  {content.platforms.map((platform) => (
+                  {/* 플랫폼 중복 제거 (code 기준) */}
+                  {content.platforms
+                    .filter((platform, index, self) =>
+                      index === self.findIndex(p => p.code === platform.code)
+                    )
+                    .map((platform) => (
                     <a
                       key={platform.id || platform.code}
                       href={getPlatformSearchUrl(platform, content.title, locale)}

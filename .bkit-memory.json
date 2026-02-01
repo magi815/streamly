@@ -1,0 +1,52 @@
+{
+  "version": "1.4.7",
+  "currentFeature": null,
+  "phase": "archived",
+  "tasks": {},
+  "history": [
+    {
+      "phase": "plan",
+      "date": "2026-02-01",
+      "action": "Plan document created",
+      "document": "docs/01-plan/features/multi-country-i18n.plan.md"
+    },
+    {
+      "phase": "design",
+      "date": "2026-02-01",
+      "action": "Design document created",
+      "document": "docs/02-design/features/multi-country-i18n.design.md"
+    },
+    {
+      "phase": "do",
+      "date": "2026-02-01",
+      "action": "Implementation started",
+      "document": null
+    },
+    {
+      "phase": "check",
+      "date": "2026-02-01",
+      "action": "Gap analysis completed",
+      "matchRate": 100
+    },
+    {
+      "phase": "report",
+      "date": "2026-02-01",
+      "action": "Completion report generated",
+      "document": "docs/04-report/features/multi-country-i18n.report.md"
+    },
+    {
+      "phase": "archived",
+      "date": "2026-02-01",
+      "action": "Documents archived",
+      "archivedTo": "docs/archive/2026-02/multi-country-i18n/"
+    }
+  ],
+  "archivedFeatures": [
+    {
+      "name": "multi-country-i18n",
+      "completedDate": "2026-02-01",
+      "matchRate": 100,
+      "archivePath": "docs/archive/2026-02/multi-country-i18n/"
+    }
+  ]
+}

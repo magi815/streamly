@@ -105,16 +105,15 @@ async function getTranslatedContent(
   return content;
 }
 
-// Helper function to get review count for content (optionally by country)
+// Helper function to get review count for content by language
 async function getReviewCountForContent(
   db: D1Database,
   contentId: number,
-  country?: CountryCode
+  language: LanguageCode
 ): Promise<number> {
-  // For now, return all reviews count (country filtering can be added later)
   const result = await db.prepare(
-    `SELECT COUNT(*) as count FROM youtube_reviews WHERE content_id = ?`
-  ).bind(contentId).first<{ count: number }>();
+    `SELECT COUNT(*) as count FROM youtube_reviews WHERE content_id = ? AND country_code = ?`
+  ).bind(contentId, language).first<{ count: number }>();
   return result?.count || 0;
 }
 
@@ -206,7 +205,7 @@ contentsRoutes.get('/', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
@@ -255,7 +254,7 @@ contentsRoutes.get('/movies', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
@@ -300,7 +299,7 @@ contentsRoutes.get('/dramas', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
@@ -339,7 +338,7 @@ contentsRoutes.get('/trending', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
@@ -369,7 +368,7 @@ contentsRoutes.get('/new-releases', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
@@ -417,7 +416,7 @@ contentsRoutes.get('/search', async (c) => {
         ...translated,
         genres: await getGenresForContent(db, content.id),
         platforms: await getPlatformsForContent(db, content.id, country),
-        review_count: await getReviewCountForContent(db, content.id, country),
+        review_count: await getReviewCountForContent(db, content.id, language),
       };
     })
   );
