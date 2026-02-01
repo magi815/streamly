@@ -143,7 +143,8 @@ contentsRoutes.get('/', async (c) => {
 
   // Filter by country availability (default: show only available in requested country)
   if (available_kr !== 'false') {
-    whereClause += ' AND id IN (SELECT content_id FROM content_platforms)';
+    whereClause += ' AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)';
+    params.push(country);
   }
 
   if (content_type) {
@@ -235,17 +236,17 @@ contentsRoutes.get('/movies', async (c) => {
   const countResult = await db.prepare(
     `SELECT COUNT(*) as count FROM contents
      WHERE content_type = 'movie'
-     AND id IN (SELECT content_id FROM content_platforms)`
-  ).first<{ count: number }>();
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)`
+  ).bind(country).first<{ count: number }>();
 
   const totalCount = countResult?.count || 0;
 
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE content_type = 'movie'
-     AND id IN (SELECT content_id FROM content_platforms)
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)
      ORDER BY popularity DESC LIMIT ? OFFSET ?`
-  ).bind(PAGE_SIZE, offset).all<Content>();
+  ).bind(country, PAGE_SIZE, offset).all<Content>();
 
   const results = await Promise.all(
     (contents.results || []).map(async (content) => {
@@ -280,17 +281,17 @@ contentsRoutes.get('/dramas', async (c) => {
   const countResult = await db.prepare(
     `SELECT COUNT(*) as count FROM contents
      WHERE content_type = 'drama'
-     AND id IN (SELECT content_id FROM content_platforms)`
-  ).first<{ count: number }>();
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)`
+  ).bind(country).first<{ count: number }>();
 
   const totalCount = countResult?.count || 0;
 
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE content_type = 'drama'
-     AND id IN (SELECT content_id FROM content_platforms)
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)
      ORDER BY popularity DESC LIMIT ? OFFSET ?`
-  ).bind(PAGE_SIZE, offset).all<Content>();
+  ).bind(country, PAGE_SIZE, offset).all<Content>();
 
   const results = await Promise.all(
     (contents.results || []).map(async (content) => {
@@ -327,9 +328,9 @@ contentsRoutes.get('/trending', async (c) => {
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE release_date >= ?
-     AND id IN (SELECT content_id FROM content_platforms)
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)
      ORDER BY popularity DESC LIMIT 10`
-  ).bind(dateStr).all<Content>();
+  ).bind(dateStr, country).all<Content>();
 
   const results = await Promise.all(
     (contents.results || []).map(async (content) => {
@@ -357,9 +358,9 @@ contentsRoutes.get('/new-releases', async (c) => {
   const contents = await db.prepare(
     `SELECT * FROM contents
      WHERE release_date IS NOT NULL
-     AND id IN (SELECT content_id FROM content_platforms)
+     AND id IN (SELECT content_id FROM content_platforms WHERE country_code = ?)
      ORDER BY release_date DESC LIMIT 10`
-  ).all<Content>();
+  ).bind(country).all<Content>();
 
   const results = await Promise.all(
     (contents.results || []).map(async (content) => {

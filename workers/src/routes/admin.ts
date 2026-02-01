@@ -687,45 +687,27 @@ adminRoutes.get('/stats', async (c) => {
   });
 });
 
-// OTT 시청 정보 수집 (TMDb Watch Providers)
+// 국가별 지원 플랫폼 목록 (TMDB provider_id)
+const COUNTRY_PROVIDERS: Record<string, number[]> = {
+  KR: [8, 97, 356, 337, 350, 1883, 2062], // Netflix, Watcha, Wavve, Disney+, Apple TV+, TVING, Coupang Play
+  US: [8, 9, 337, 15, 384, 350, 531],     // Netflix, Amazon Prime, Disney+, Hulu, Max, Apple TV+, Paramount+
+  JP: [8, 9, 84, 85, 15, 337],            // Netflix, Amazon Prime, U-NEXT, dTV, Hulu, Disney+
+};
+
+// OTT 시청 정보 수집 (TMDb Watch Providers) - 다국가 지원
 adminRoutes.post('/collect-watch-providers', async (c) => {
   const db = c.env.DB;
   const apiKey = c.env.TMDB_API_KEY;
-  const { offset = 0, limit = 50 } = await c.req.json().catch(() => ({ offset: 0, limit: 50 }));
+  const { offset = 0, limit = 50, country = 'all' } = await c.req.json().catch(() => ({ offset: 0, limit: 50, country: 'all' }));
 
   if (!apiKey) {
     return c.json({ error: 'TMDB_API_KEY not configured' }, 400);
   }
 
-  // 한국에서 사용 가능한 주요 OTT 플랫폼 (TMDb provider_id)
-  const koreanProviders: Record<number, { name: string; code: string; logo: string }> = {
-    8: { name: 'Netflix', code: 'netflix', logo: '/t2yyOv40HZeVlLjYsCsPHnWLk4W.jpg' },
-    97: { name: 'Watcha', code: 'watcha', logo: '/2ioan5BX5L9tz4fIGU93blTeFhv.jpg' },
-    356: { name: 'Wavve', code: 'wavve', logo: '/6UKUfqUCOEbCpaChyPtBqR8HR13.jpg' },
-    337: { name: 'Disney+', code: 'disney_plus', logo: '/7rwgEs15tFwyR9NPQ5vpzxTj19Q.jpg' },
-    350: { name: 'Apple TV+', code: 'apple_tv_plus', logo: '/6uhKBfmtzFqOcLousHwZuzcrScK.jpg' },
-    1883: { name: 'TVING', code: 'tving', logo: '/cNi4Nv5EPsnvf5WmgwhfWDsdMUd.jpg' },
-  };
+  // 수집할 국가 목록
+  const countriesToCollect = country === 'all' ? ['KR', 'US', 'JP'] : [country];
 
   try {
-    // 플랫폼 정보 업데이트/삽입 (첫 번째 호출에서만)
-    if (offset === 0) {
-      for (const [providerId, info] of Object.entries(koreanProviders)) {
-        await db.prepare(`
-          INSERT INTO platforms (name, code, tmdb_provider_id, logo_url)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(code) DO UPDATE SET
-            tmdb_provider_id = excluded.tmdb_provider_id,
-            logo_url = excluded.logo_url
-        `).bind(
-          info.name,
-          info.code,
-          parseInt(providerId),
-          `https://image.tmdb.org/t/p/original${info.logo}`
-        ).run();
-      }
-    }
-
     // 페이지네이션으로 콘텐츠 가져오기
     const totalResult = await db.prepare('SELECT COUNT(*) as count FROM contents').first<{ count: number }>();
     const total = totalResult?.count || 0;
@@ -734,7 +716,7 @@ adminRoutes.post('/collect-watch-providers', async (c) => {
       `SELECT id, tmdb_id, content_type FROM contents ORDER BY id LIMIT ? OFFSET ?`
     ).bind(limit, offset).all<{ id: number; tmdb_id: number; content_type: string }>();
 
-    let collected = 0;
+    const results: Record<string, number> = { KR: 0, US: 0, JP: 0 };
     let processed = 0;
 
     for (const content of contents.results || []) {
@@ -745,27 +727,34 @@ adminRoutes.post('/collect-watch-providers', async (c) => {
           `https://api.themoviedb.org/3/${mediaType}/${content.tmdb_id}/watch/providers?api_key=${apiKey}`
         );
         const data = await res.json() as {
-          results?: {
-            KR?: {
-              flatrate?: Array<{ provider_id: number; provider_name: string; logo_path: string }>;
-            }
-          }
+          results?: Record<string, {
+            flatrate?: Array<{ provider_id: number; provider_name: string; logo_path: string }>;
+          }>
         };
 
-        const krProviders = data.results?.KR?.flatrate || [];
+        // 각 국가별로 처리
+        for (const countryCode of countriesToCollect) {
+          const countryData = data.results?.[countryCode];
+          const providers = countryData?.flatrate || [];
+          const supportedProviders = COUNTRY_PROVIDERS[countryCode] || [];
 
-        for (const provider of krProviders) {
-          const platform = await db.prepare(
-            'SELECT id FROM platforms WHERE tmdb_provider_id = ?'
-          ).bind(provider.provider_id).first<{ id: number }>();
+          for (const provider of providers) {
+            // 해당 국가에서 지원하는 플랫폼인지 확인
+            if (!supportedProviders.includes(provider.provider_id)) continue;
 
-          if (platform) {
-            await db.prepare(`
-              INSERT INTO content_platforms (content_id, platform_id)
-              VALUES (?, ?)
-              ON CONFLICT DO NOTHING
-            `).bind(content.id, platform.id).run();
-            collected++;
+            // country_platforms에서 해당 국가/플랫폼 찾기
+            const countryPlatform = await db.prepare(
+              'SELECT platform_id FROM country_platforms WHERE country_code = ? AND tmdb_provider_id = ?'
+            ).bind(countryCode, provider.provider_id).first<{ platform_id: number }>();
+
+            if (countryPlatform) {
+              await db.prepare(`
+                INSERT INTO content_platforms (content_id, platform_id, country_code)
+                VALUES (?, ?, ?)
+                ON CONFLICT(content_id, platform_id, country_code) DO NOTHING
+              `).bind(content.id, countryPlatform.platform_id, countryCode).run();
+              results[countryCode]++;
+            }
           }
         }
         processed++;
@@ -776,7 +765,7 @@ adminRoutes.post('/collect-watch-providers', async (c) => {
 
     const nextOffset = offset + limit < total ? offset + limit : null;
 
-    return c.json({ success: true, processed, collected, total, nextOffset });
+    return c.json({ success: true, processed, collected: results, total, nextOffset });
   } catch (error) {
     console.error('Collect watch providers error:', error);
     return c.json({ error: 'Failed to collect watch providers' }, 500);
