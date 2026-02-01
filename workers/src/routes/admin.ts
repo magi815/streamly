@@ -1287,6 +1287,36 @@ const REVIEW_SEARCH_TEMPLATES: Record<string, { movie: string; drama: string }> 
   ja: { movie: '{title} 映画 レビュー', drama: '{title} ドラマ レビュー' },
 };
 
+// 제목 기반 언어 감지 함수
+function detectLanguage(text: string): string {
+  // 한글 포함 여부 (가-힣)
+  const hasKorean = /[\uAC00-\uD7AF]/.test(text);
+  // 일본어 포함 여부 (히라가나, 가타카나)
+  const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF]/.test(text);
+  // 중국어 간체/번체 (한자만 있고 일본어/한국어 없는 경우)
+  const hasChinese = /[\u4E00-\u9FFF]/.test(text) && !hasJapanese && !hasKorean;
+
+  if (hasKorean) return 'ko';
+  if (hasJapanese) return 'ja';
+  if (hasChinese) return 'zh'; // 중국어는 별도 처리 (수집 안함)
+
+  // 나머지는 영어로 간주 (라틴 문자 기반)
+  return 'en';
+}
+
+// 제목이 해당 언어와 일치하는지 확인
+function matchesLanguage(title: string, targetLang: string): boolean {
+  const detected = detectLanguage(title);
+
+  // 영어의 경우: 한글, 일본어, 중국어가 없어야 함
+  if (targetLang === 'en') {
+    return detected === 'en';
+  }
+
+  // 한국어/일본어의 경우: 해당 언어 문자가 포함되어야 함
+  return detected === targetLang;
+}
+
 adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
   const db = c.env.DB;
   const { limit = 20, debug = false, content_type = null, recent_only = true, korean_ott_only = false, include_existing = false, offset = 0, language = 'ko' } = await c.req.json().catch(() => ({ limit: 20, debug: false, content_type: null, recent_only: true, korean_ott_only: false, include_existing: false, offset: 0, language: 'ko' }));
@@ -1360,6 +1390,11 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
         }
 
         for (const item of result.items) {
+          // 제목 기반 언어 필터링 - 해당 언어와 일치하는 영상만 수집
+          if (!matchesLanguage(item.title, lang)) {
+            continue; // 언어가 일치하지 않으면 스킵
+          }
+
           // 썸네일 URL 정리 (프록시 URL에서 원본으로 변환)
           let thumbnailUrl = item.thumbnail;
           if (thumbnailUrl.includes('proxy.')) {
