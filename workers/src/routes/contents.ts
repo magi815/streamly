@@ -467,10 +467,17 @@ contentsRoutes.get('/:id', async (c) => {
     'SELECT name FROM content_cast WHERE content_id = ? ORDER BY order_num LIMIT 10'
   ).bind(id).all<{ name: string }>();
 
-  // Get YouTube reviews
-  const reviews = await db.prepare(
-    'SELECT * FROM youtube_reviews WHERE content_id = ? ORDER BY is_featured DESC, view_count DESC'
-  ).bind(id).all();
+  // Get YouTube reviews (filter by language, fallback to all if none found)
+  let reviews = await db.prepare(
+    'SELECT * FROM youtube_reviews WHERE content_id = ? AND country_code = ? ORDER BY is_featured DESC, view_count DESC'
+  ).bind(id, language).all();
+
+  // Fallback to all reviews if no language-specific reviews found
+  if (!reviews.results || reviews.results.length === 0) {
+    reviews = await db.prepare(
+      'SELECT * FROM youtube_reviews WHERE content_id = ? ORDER BY is_featured DESC, view_count DESC'
+    ).bind(id).all();
+  }
 
   return c.json({
     ...translated,
@@ -485,20 +492,30 @@ contentsRoutes.get('/:id', async (c) => {
 contentsRoutes.get('/:id/reviews', async (c) => {
   const db = c.env.DB;
   const id = parseInt(c.req.param('id'));
-  const { country: countryParam } = c.req.query();
+  const { country: countryParam, language: languageParam } = c.req.query();
 
   const country = getValidCountry(countryParam);
+  const language = getValidLanguage(languageParam, country);
 
   if (isNaN(id)) {
     return c.json({ error: 'Invalid content ID' }, 400);
   }
 
-  // For now, return all reviews (country filtering can be added later)
-  const reviews = await db.prepare(
+  // Filter by language, fallback to all if none found
+  let reviews = await db.prepare(
     `SELECT * FROM youtube_reviews
-     WHERE content_id = ?
+     WHERE content_id = ? AND country_code = ?
      ORDER BY is_featured DESC, view_count DESC`
-  ).bind(id).all();
+  ).bind(id, language).all();
+
+  // Fallback to all reviews if no language-specific reviews found
+  if (!reviews.results || reviews.results.length === 0) {
+    reviews = await db.prepare(
+      `SELECT * FROM youtube_reviews
+       WHERE content_id = ?
+       ORDER BY is_featured DESC, view_count DESC`
+    ).bind(id).all();
+  }
 
   return c.json(reviews.results || []);
 });

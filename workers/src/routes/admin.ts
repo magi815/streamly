@@ -1280,9 +1280,20 @@ async function searchViaPiped(query: string): Promise<{
 }
 
 // YouTube 리뷰 수집 (Piped API 사용 - 할당량 무제한)
+// 언어별 검색어 템플릿
+const REVIEW_SEARCH_TEMPLATES: Record<string, { movie: string; drama: string }> = {
+  ko: { movie: '{title} 영화 리뷰', drama: '{title} 드라마 리뷰' },
+  en: { movie: '{title} movie review', drama: '{title} TV series review' },
+  ja: { movie: '{title} 映画 レビュー', drama: '{title} ドラマ レビュー' },
+};
+
 adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
   const db = c.env.DB;
-  const { limit = 20, debug = false, content_type = null, recent_only = true, korean_ott_only = false, include_existing = false, offset = 0 } = await c.req.json().catch(() => ({ limit: 20, debug: false, content_type: null, recent_only: true, korean_ott_only: false, include_existing: false, offset: 0 }));
+  const { limit = 20, debug = false, content_type = null, recent_only = true, korean_ott_only = false, include_existing = false, offset = 0, language = 'ko' } = await c.req.json().catch(() => ({ limit: 20, debug: false, content_type: null, recent_only: true, korean_ott_only: false, include_existing: false, offset: 0, language: 'ko' }));
+
+  // 유효한 언어 확인
+  const validLanguages = ['ko', 'en', 'ja'];
+  const lang = validLanguages.includes(language) ? language : 'ko';
 
   try {
     // 1년 전 날짜 계산
@@ -1297,7 +1308,7 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
     `;
 
     if (!include_existing) {
-      query += ` LEFT JOIN youtube_reviews yr ON c.id = yr.content_id`;
+      query += ` LEFT JOIN youtube_reviews yr ON c.id = yr.content_id AND yr.country_code = '${lang}'`;
     }
 
     if (korean_ott_only) {
@@ -1328,7 +1339,10 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
     let usedInstance = '';
 
     for (const content of contents.results || []) {
-      const searchQuery = `${content.title} ${content.content_type === 'movie' ? '영화' : '드라마'} 리뷰`;
+      // 언어별 검색어 생성
+      const template = REVIEW_SEARCH_TEMPLATES[lang] || REVIEW_SEARCH_TEMPLATES['ko'];
+      const searchTemplate = content.content_type === 'movie' ? template.movie : template.drama;
+      const searchQuery = searchTemplate.replace('{title}', content.title);
 
       try {
         const result = await searchViaPiped(searchQuery);
@@ -1354,9 +1368,9 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
 
           await db.prepare(`
             INSERT INTO youtube_reviews (
-              content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'piped_api')
-            ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count, source = 'piped_api'
+              content_id, video_id, title, channel_name, thumbnail_url, youtube_url, published_at, view_count, source, country_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'piped_api', ?)
+            ON CONFLICT(video_id) DO UPDATE SET view_count = excluded.view_count, source = 'piped_api', country_code = excluded.country_code
           `).bind(
             content.id,
             item.videoId,
@@ -1365,7 +1379,8 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
             thumbnailUrl,
             `https://www.youtube.com/watch?v=${item.videoId}`,
             item.uploaded ? new Date(item.uploaded).toISOString() : null,
-            item.views
+            item.views,
+            lang
           ).run();
           collected++;
         }
@@ -1378,6 +1393,7 @@ adminRoutes.post('/collect-youtube-reviews-piped', async (c) => {
       success: true,
       collected,
       processed: contents.results?.length || 0,
+      language: lang,
       usedInstance,
       errors: errors.length > 0 ? errors : undefined,
       debug: debug ? debugInfo : undefined
