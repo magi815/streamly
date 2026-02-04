@@ -1,4 +1,7 @@
-import Link from 'next/link';
+'use client';
+
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { Content } from '@/types/content';
 import ContentCard from './ContentCard';
 
@@ -9,6 +12,8 @@ interface ContentSectionProps {
 }
 
 export default function ContentSection({ title, contents, viewAllHref }: ContentSectionProps) {
+  const t = useTranslations('home');
+
   return (
     <section className="py-8">
       <div className="mb-4 flex items-center justify-between">
@@ -18,7 +23,7 @@ export default function ContentSection({ title, contents, viewAllHref }: Content
             href={viewAllHref}
             className="text-sm text-gray-400 hover:text-purple-400"
           >
-            더보기 →
+            {t('viewAll')} →
           </Link>
         )}
       </div>

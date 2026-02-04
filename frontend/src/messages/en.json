@@ -69,6 +69,10 @@
     "year5": "5 Years",
     "allTime": "All Time"
   },
+  "pagination": {
+    "previous": "Prev",
+    "next": "Next"
+  },
   "common": {
     "loading": "Loading...",
     "error": "An error occurred",

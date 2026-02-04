@@ -69,6 +69,10 @@
     "year5": "5년",
     "allTime": "전체"
   },
+  "pagination": {
+    "previous": "이전",
+    "next": "다음"
+  },
   "common": {
     "loading": "로딩 중...",
     "error": "오류가 발생했습니다",

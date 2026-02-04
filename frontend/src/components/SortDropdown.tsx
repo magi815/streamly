@@ -1,37 +1,15 @@
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
-
-interface SortOption {
-  value: string;
-  label: string;
-}
-
-interface PeriodOption {
-  value: string;
-  label: string;
-}
-
-const sortOptions: SortOption[] = [
-  { value: '-popularity', label: '인기순' },
-  { value: '-rating', label: '평점 높은순' },
-  { value: 'rating', label: '평점 낮은순' },
-  { value: '-release_date', label: '최신순' },
-  { value: 'release_date', label: '오래된순' },
-];
-
-const periodOptions: PeriodOption[] = [
-  { value: '1', label: '최근 1년' },
-  { value: '2', label: '최근 2년' },
-  { value: '5', label: '최근 5년' },
-  { value: 'all', label: '전체' },
-];
+import { useRouter } from '@/i18n/navigation';
+import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 interface SortDropdownProps {
   baseUrl: string;
 }
 
 export default function SortDropdown({ baseUrl }: SortDropdownProps) {
+  const t = useTranslations('filter');
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentSort = searchParams.get('ordering') || '-popularity';
@@ -40,11 +18,25 @@ export default function SortDropdown({ baseUrl }: SortDropdownProps) {
 
   const isPopularitySort = currentSort === '-popularity';
 
+  const sortOptions = [
+    { value: '-popularity', label: t('popularity') },
+    { value: '-rating', label: `${t('rating')} ↑` },
+    { value: 'rating', label: `${t('rating')} ↓` },
+    { value: '-release_date', label: t('releaseDate') },
+    { value: 'release_date', label: `${t('releaseDate')} ↑` },
+  ];
+
+  const periodOptions = [
+    { value: '1', label: t('year1') },
+    { value: '2', label: t('year2') },
+    { value: '5', label: t('year5') },
+    { value: 'all', label: t('allTime') },
+  ];
+
   const buildUrl = (ordering: string, period?: string) => {
     const params = new URLSearchParams();
     if (currentGenre) params.set('genre', currentGenre);
     params.set('ordering', ordering);
-    // 인기순일 때만 period 파라미터 추가
     if (ordering === '-popularity' && period && period !== '1') {
       params.set('period', period);
     }
@@ -53,7 +45,6 @@ export default function SortDropdown({ baseUrl }: SortDropdownProps) {
 
   const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newSort = e.target.value;
-    // 인기순으로 변경 시 기본 기간은 1년
     const period = newSort === '-popularity' ? currentPeriod : undefined;
     router.push(buildUrl(newSort, period));
   };
@@ -64,7 +55,6 @@ export default function SortDropdown({ baseUrl }: SortDropdownProps) {
 
   return (
     <div className="flex items-center gap-2">
-      {/* 인기순일 때만 기간 선택 표시 */}
       {isPopularitySort && (
         <select
           value={currentPeriod}
@@ -79,7 +69,6 @@ export default function SortDropdown({ baseUrl }: SortDropdownProps) {
         </select>
       )}
 
-      {/* 정렬 선택 */}
       <select
         value={currentSort}
         onChange={handleSortChange}

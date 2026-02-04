@@ -1,7 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Genre } from '@/types/content';
 
 interface GenreFilterProps {
@@ -11,10 +12,10 @@ interface GenreFilterProps {
 }
 
 export default function GenreFilter({ genres, selectedGenre, baseUrl }: GenreFilterProps) {
+  const t = useTranslations('filter');
   const searchParams = useSearchParams();
   const currentOrdering = searchParams.get('ordering');
 
-  // 현재 정렬 순서를 유지하면서 URL 생성
   const buildUrl = (genreId?: number) => {
     const params = new URLSearchParams();
     if (genreId) params.set('genre', genreId.toString());
@@ -33,7 +34,7 @@ export default function GenreFilter({ genres, selectedGenre, baseUrl }: GenreFil
             : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
         }`}
       >
-        전체
+        {t('all')}
       </Link>
       {genres.map((genre) => (
         <Link

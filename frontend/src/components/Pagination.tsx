@@ -1,6 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 interface PaginationProps {
   currentPage: number;
@@ -10,6 +11,8 @@ interface PaginationProps {
 }
 
 export default function Pagination({ currentPage, totalPages, baseUrl, queryParams = {} }: PaginationProps) {
+  const t = useTranslations('pagination');
+
   if (totalPages <= 1) return null;
 
   const createUrl = (page: number) => {
@@ -58,11 +61,11 @@ export default function Pagination({ currentPage, totalPages, baseUrl, queryPara
           href={createUrl(currentPage - 1)}
           className="rounded-lg px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
         >
-          ← 이전
+          {`← ${t('previous')}`}
         </Link>
       ) : (
         <span className="rounded-lg px-3 py-2 text-sm text-gray-600 cursor-not-allowed">
-          ← 이전
+          {`← ${t('previous')}`}
         </span>
       )}
 
@@ -95,11 +98,11 @@ export default function Pagination({ currentPage, totalPages, baseUrl, queryPara
           href={createUrl(currentPage + 1)}
           className="rounded-lg px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
         >
-          다음 →
+          {`${t('next')} →`}
         </Link>
       ) : (
         <span className="rounded-lg px-3 py-2 text-sm text-gray-600 cursor-not-allowed">
-          다음 →
+          {`${t('next')} →`}
         </span>
       )}
     </nav>
